@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>รายละเอียดที่พัก — NU Dorm Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
+</head>
+<body>
+  <main id="page"><p class="muted">กำลังโหลด…</p></main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="/js/common.js"></script>
+  <script>
+    renderHeader('search');
+    const id = Number(new URLSearchParams(location.search).get('id'));
+
+    function contactButtons(p) {
+      const out = [];
+      if (p.contact_phone) out.push(`<a class="btn primary" data-ch="phone" href="tel:${esc(p.contact_phone.replace(/[^\d+]/g, ''))}">โทร ${esc(p.contact_phone)}</a>`);
+      if (p.contact_line) {
+        const lineId = p.contact_line.replace(/^@?/, '');
+        out.push(`<a class="btn" data-ch="line" target="_blank" rel="noopener" href="https://line.me/R/ti/p/${encodeURIComponent(p.contact_line.startsWith('@') ? '@' + lineId : '~' + lineId)}">LINE: ${esc(p.contact_line)}</a>`);
+      }
+      if (p.contact_facebook) {
+        const href = /^https?:\/\//.test(p.contact_facebook) ? p.contact_facebook : `https://facebook.com/${encodeURIComponent(p.contact_facebook)}`;
+        out.push(`<a class="btn" data-ch="facebook" target="_blank" rel="noopener" href="${esc(href)}">Facebook</a>`);
+      }
+      return out.join('') || '<p class="muted">ยังไม่มีช่องทางติดต่อ</p>';
+    }
+
+    function render(p) {
+      document.title = `${p.name} — NU Dorm Finder`;
+      const imgs = p.images;
+      const gallery = imgs.length
+        ? `<div class="gallery">
+            <img class="main" src="${esc(imgs[0])}" alt="${esc(p.name)}">
+            ${imgs.slice(1, 3).map((u) => `<img src="${esc(u)}" alt="">`).join('')}
+          </div>
+          ${imgs.length > 3 ? `<p class="small muted" style="margin-top:-10px">มีรูปทั้งหมด ${imgs.length} รูป — กดรูปเพื่อดูทั้งหมด</p>` : ''}`
+        : `<div class="gallery"><div class="placeholder">ยังไม่มีรูปภาพ</div></div>`;
+
+      const related = p.distances.filter((d) => d.related);
+      const others = p.distances.filter((d) => !d.related).sort((a, b) => a.straight_line_m - b.straight_line_m);
+
+      document.getElementById('page').innerHTML = `
+        <p class="small"><a href="javascript:history.back()">← กลับไปผลการค้นหา</a></p>
+        ${p.status !== 'published' ? `<div class="notice">ที่พักนี้ยังไม่เผยแพร่ (สถานะ: ${statusChip(p.status)}) — เห็นได้เฉพาะเจ้าของและผู้ดูแลระบบ</div>` : ''}
+        <div class="detail">
+          <div>
+            <div class="chips" style="margin-bottom:8px">
+              <span class="chip accent">${esc(p.type_name)}</span>
+              ${p.gates.map((g) => `<a class="chip" href="/search?gate=${g.id}">${esc(g.name)}</a>`).join('')}
+              ${p.zone_name ? `<a class="chip" href="/search?zone=${p.zone_id}">${esc(p.zone_name)}</a>` : ''}
+            </div>
+            <h1>${esc(p.name)}</h1>
+            <p class="muted" style="margin-top:-4px">${esc(p.address)}</p>
+            ${gallery}
+
+            <div class="card form-section"><div class="card-body">
+              <h2>ราคาแต่ละประเภทห้อง</h2>
+              <table class="rooms">
+                <thead><tr><th>ประเภทห้อง</th><th>ขนาด</th><th>ค่าเช่า/เดือน</th><th>สถานะ</th></tr></thead>
+                <tbody>${p.rooms.map((r) => `<tr>
+                  <td>${esc(r.name)}${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}</td>
+                  <td>${r.size_sqm ? `${r.size_sqm} ตร.ม.` : '-'}</td>
+                  <td><b>${baht(r.price)}</b> บาท</td>
+                  <td>${r.available ? '<span class="chip ok">ว่าง</span>' : '<span class="chip">เต็ม</span>'}</td>
+                </tr>`).join('')}</tbody>
+              </table>
+            </div></div>
+
+            <div class="card form-section"><div class="card-body">
+              <h2>ค่าใช้จ่ายอื่นและเงื่อนไขการเช่า</h2>
+              <dl class="facts">
+                <dt>เงินประกัน</dt><dd>${p.deposit != null ? baht(p.deposit) + ' บาท' : '-'}</dd>
+                <dt>ค่าน้ำ</dt><dd>${esc(p.water_rate || '-')}</dd>
+                <dt>ค่าไฟ</dt><dd>${esc(p.electric_rate || '-')}</dd>
+                <dt>ค่าใช้จ่ายอื่น</dt><dd>${esc(p.other_fees || '-')}</dd>
+                <dt>เงื่อนไขการเช่า</dt><dd>${esc(p.lease_terms || '-')}</dd>
+              </dl>
+            </div></div>
+
+            <div class="card form-section"><div class="card-body">
+              <h2>สิ่งอำนวยความสะดวก</h2>
+              <div class="chips">${p.amenities.map((a) => `<span class="chip">${esc(a.name)}</span>`).join('') || '<span class="muted">ไม่ระบุ</span>'}</div>
+              ${p.description ? `<h3 style="margin-top:16px">รายละเอียดเพิ่มเติม</h3><p style="white-space:pre-line;margin:0">${esc(p.description)}</p>` : ''}
+            </div></div>
+
+            <div class="card form-section"><div class="card-body">
+              <h2>ตำแหน่งและระยะทาง</h2>
+              <div id="map" class="map" style="height:340px;margin-bottom:12px"></div>
+              <p class="small muted">พิกัด ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)} ·
+                <a target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}">นำทางด้วย Google Maps</a></p>
+              <table class="dist-table">
+                ${related.map((d) => `<tr><td><b>${esc(d.gate_name)}</b> <span class="chip accent">ประตูที่เกี่ยวข้อง</span></td><td>${distanceText(d.straight_line_m)}</td></tr>`).join('')}
+                ${others.map((d) => `<tr><td class="muted">${esc(d.gate_name)}</td><td class="muted">${distanceText(d.straight_line_m)}</td></tr>`).join('')}
+              </table>
+              <p class="small muted" style="margin-bottom:0">* ระยะทางเส้นตรงจากพิกัดที่พักถึงพิกัดประตู ระยะเดินหรือขับรถจริงจะมากกว่านี้</p>
+            </div></div>
+          </div>
+
+          <aside>
+            <div class="card contact-box"><div class="card-body">
+              <div class="price" style="font-size:1.35rem;font-weight:700;color:var(--accent-dark)">${priceRange(Math.min(...p.rooms.map((r) => r.price)), Math.max(...p.rooms.map((r) => r.price)))}</div>
+              <p class="small muted" style="margin-top:0">${p.contact_name ? 'ติดต่อ: ' + esc(p.contact_name) : ''}</p>
+              <div id="contacts">${contactButtons(p)}</div>
+              <hr style="border:0;border-top:1px solid var(--line);margin:14px 0">
+              <dl class="facts small">
+                <dt>ตรวจสอบล่าสุด</dt><dd>${freshnessChip(p.verified_at)}</dd>
+                <dt>แหล่งข้อมูล</dt><dd>${esc(p.data_source || '-')}</dd>
+                <dt>ปรับปรุงเมื่อ</dt><dd>${thaiDate(p.updated_at)}</dd>
+              </dl>
+              <button class="btn small danger" id="reportBtn" style="margin-top:14px;width:100%">แจ้งข้อมูลไม่ถูกต้อง</button>
+            </div></div>
+          </aside>
+        </div>`;
+
+      const map = createMap('map', { center: [p.lat, p.lng], zoom: 16 });
+      L.marker([p.lat, p.lng], { icon: propIcon({ price_min: Math.min(...p.rooms.map((r) => r.price)) }, true) }).addTo(map).bindTooltip(p.name);
+      getMeta().then((meta) => {
+        addGateMarkers(map, meta.gates);
+        const relatedGates = meta.gates.filter((g) => p.gate_ids.includes(g.id));
+        relatedGates.forEach((g) =>
+          L.polyline([[p.lat, p.lng], [g.lat, g.lng]], { color: '#e0701b', weight: 2, dashArray: '6 6' }).addTo(map)
+        );
+        fitTo(map, L.latLngBounds([[p.lat, p.lng], ...relatedGates.map((g) => [g.lat, g.lng])]).pad(0.3), { maxZoom: 17 });
+      });
+
+      document.getElementById('contacts').addEventListener('click', (e) => {
+        const a = e.target.closest('a[data-ch]');
+        if (a) track('contact_click', { property_id: p.id, channel: a.dataset.ch });
+      });
+      document.querySelector('.gallery')?.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'IMG') return;
+        openModal('รูปภาพทั้งหมด', imgs.map((u) => `<img src="${esc(u)}" style="width:100%;border-radius:8px;margin-bottom:10px">`).join(''));
+      });
+      document.getElementById('reportBtn').addEventListener('click', () => reportDialog(p));
+    }
+
+    function reportDialog(p) {
+      const reasons = ['ราคาไม่ถูกต้อง', 'ห้องเต็ม/ปิดกิจการแล้ว', 'ตำแหน่งบนแผนที่ผิด', 'ช่องทางติดต่อใช้ไม่ได้', 'รูปภาพไม่ตรงกับความจริง', 'อื่น ๆ'];
+      const m = openModal('แจ้งข้อมูลไม่ถูกต้อง', `
+        <form id="reportForm">
+          <p class="muted small" style="margin-top:0">ผู้ดูแลระบบจะตรวจสอบและแก้ไขข้อมูลของ "${esc(p.name)}"</p>
+          <div class="field"><label>เหตุผล</label>${reasons.map((r) => `<label class="check"><input type="radio" name="reason" value="${r}" required> ${r}</label>`).join('')}</div>
+          <div class="field"><label for="detail">รายละเอียดเพิ่มเติม</label><textarea id="detail" name="detail" rows="3"></textarea></div>
+          <button class="btn primary">ส่งรายงาน</button>
+        </form>`);
+      m.el.querySelector('form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        try {
+          await api('/api/reports', { method: 'POST', body: { property_id: p.id, reason: fd.get('reason'), detail: fd.get('detail') } });
+          m.close();
+          toast('ขอบคุณ ส่งรายงานเรียบร้อยแล้ว');
+        } catch (err) {
+          toast(err.message);
+        }
+      });
+    }
+
+    api(`/api/properties/${id}`)
+      .then((p) => {
+        render(p);
+        track('view_property', { property_id: p.id });
+      })
+      .catch((err) => {
+        document.getElementById('page').innerHTML = `<div class="card empty"><h2>${esc(err.message)}</h2><a href="/search">กลับไปหน้าค้นหา</a></div>`;
+      });
+  </script>
+</body>
+</html>

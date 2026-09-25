@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ค้นหาที่พัก — NU Dorm Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
+</head>
+<body>
+  <main>
+    <div class="search-layout">
+      <aside class="card filters collapsed" id="filterBox">
+        <div class="card-body">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <h2 style="margin:0">ตัวกรอง</h2>
+            <button class="btn small filter-toggle" id="filterToggle">แสดง/ซ่อน</button>
+          </div>
+          <form id="filterForm" class="filter-body">
+            <div class="field">
+              <label for="q">ค้นหาจากชื่อ / ที่อยู่ / ซอย</label>
+              <input type="text" id="q" name="q" placeholder="เช่น กระบอก">
+            </div>
+            <fieldset><legend>ประเภทที่พัก <span class="rule">(เลือกได้หลายค่า)</span></legend><div id="fType"></div></fieldset>
+            <fieldset><legend>ประตู <span class="rule">(ใกล้ประตูใดก็ได้ที่เลือก)</span></legend><div id="fGate"></div></fieldset>
+            <fieldset><legend>โซน</legend><div id="fZone"></div></fieldset>
+            <fieldset><legend>ซอย</legend><div id="fSoi"></div></fieldset>
+            <fieldset>
+              <legend>ราคาต่อเดือน (บาท) <span class="rule">(มีห้องในช่วงนี้)</span></legend>
+              <div class="grid-2">
+                <input type="number" name="min_price" min="0" step="100" placeholder="ต่ำสุด" aria-label="ราคาต่ำสุด">
+                <input type="number" name="max_price" min="0" step="100" placeholder="สูงสุด" aria-label="ราคาสูงสุด">
+              </div>
+              <div class="chips" style="margin-top:8px" id="pricePresets">
+                <button type="button" class="btn small" data-max="2500">≤ 2,500</button>
+                <button type="button" class="btn small" data-max="3000">≤ 3,000</button>
+                <button type="button" class="btn small" data-max="4000">≤ 4,000</button>
+              </div>
+              <label class="check" style="margin-top:8px"><input type="checkbox" name="available" value="1"> เฉพาะห้องที่ยังว่าง</label>
+            </fieldset>
+            <fieldset><legend>สิ่งอำนวยความสะดวก <span class="rule">(ต้องมีครบทุกข้อที่เลือก)</span></legend><div id="fAmenity"></div></fieldset>
+            <button type="button" class="btn" id="clearBtn" style="width:100%">ล้างตัวกรองทั้งหมด</button>
+          </form>
+        </div>
+      </aside>
+
+      <section>
+        <div class="results-head">
+          <div><h1 style="margin:0" id="count">กำลังค้นหา…</h1></div>
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-weight:400">เรียงตาม
+            <select id="sort" style="width:auto">
+              <option value="distance">ใกล้ประตูที่สุด</option>
+              <option value="price_asc">ราคาต่ำ → สูง</option>
+              <option value="price_desc">ราคาสูง → ต่ำ</option>
+              <option value="verified">ตรวจสอบล่าสุด</option>
+            </select>
+          </label>
+        </div>
+        <div class="active-filters" id="activeFilters"></div>
+        <div class="results-split">
+          <div class="results-list" id="results"></div>
+          <div id="map" class="map"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="/js/common.js"></script>
+  <script>
+    renderHeader('search');
+    const form = document.getElementById('filterForm');
+    const map = createMap('map');
+    const propLayer = L.layerGroup().addTo(map);
+    const propMarkers = new Map();
+    let meta, gateMarkers, lastResults = [];
+
+    const checkbox = (name, value, label) =>
+      `<label class="check"><input type="checkbox" name="${name}" value="${esc(value)}"> ${esc(label)}</label>`;
+
+    // ---------- อ่าน/เขียนเงื่อนไขกับ URL เพื่อให้แชร์ลิงก์ผลการค้นหาได้
+    function readForm() {
+      const fd = new FormData(form);
+      const params = new URLSearchParams();
+      for (const key of ['type', 'gate', 'zone', 'soi', 'amenity']) {
+        const vals = fd.getAll(key);
+        if (vals.length) params.set(key, vals.join(','));
+      }
+      for (const key of ['q', 'min_price', 'max_price']) {
+        const v = String(fd.get(key) || '').trim();
+        if (v) params.set(key, v);
+      }
+      if (fd.get('available')) params.set('available', '1');
+      const sort = document.getElementById('sort').value;
+      if (sort !== 'distance') params.set('sort', sort);
+      return params;
+    }
+
+    function writeForm(params) {
+      for (const key of ['type', 'gate', 'zone', 'soi', 'amenity']) {
+        const vals = (params.get(key) || '').split(',').filter(Boolean);
+        form.querySelectorAll(`input[name=${key}]`).forEach((i) => (i.checked = vals.includes(i.value)));
+      }
+      for (const key of ['q', 'min_price', 'max_price']) form.elements[key].value = params.get(key) || '';
+      form.elements.available.checked = params.get('available') === '1';
+      document.getElementById('sort').value = params.get('sort') || 'distance';
+    }
+
+    // ซอยที่แสดงขึ้นกับประตู/โซนที่เลือก เพื่อให้นิสิตใหม่เห็นว่าซอยใดอยู่กับประตูใด
+    function renderSoiOptions() {
+      const checked = new Set([...form.querySelectorAll('input[name=soi]:checked')].map((i) => i.value));
+      const gates = [...form.querySelectorAll('input[name=gate]:checked')].map((i) => Number(i.value));
+      const zones = [...form.querySelectorAll('input[name=zone]:checked')].map((i) => Number(i.value));
+      const sois = meta.sois.filter(
+        (s) => (!gates.length || s.gate_ids.some((g) => gates.includes(g))) && (!zones.length || zones.includes(s.zone_id))
+      );
+      document.getElementById('fSoi').innerHTML = sois.length
+        ? sois.map((s) => checkbox('soi', s.id, s.name)).join('')
+        : '<span class="small muted">ไม่มีซอยในประตู/โซนที่เลือก</span>';
+      form.querySelectorAll('input[name=soi]').forEach((i) => (i.checked = checked.has(i.value)));
+    }
+
+    function renderActiveFilters(params) {
+      const labels = [];
+      const lookup = {
+        type: (v) => meta.types.find((t) => t.code === v)?.name,
+        gate: (v) => meta.gates.find((g) => g.id === Number(v))?.short_name,
+        zone: (v) => meta.zones.find((z) => z.id === Number(v))?.name,
+        soi: (v) => meta.sois.find((s) => s.id === Number(v))?.name,
+        amenity: (v) => meta.amenities.find((a) => a.code === v)?.name,
+      };
+      for (const [key, fn] of Object.entries(lookup)) {
+        for (const v of (params.get(key) || '').split(',').filter(Boolean)) labels.push([key, v, fn(v) || v]);
+      }
+      if (params.get('min_price')) labels.push(['min_price', '', `ราคาตั้งแต่ ${baht(params.get('min_price'))} บาท/เดือน`]);
+      if (params.get('max_price')) labels.push(['max_price', '', `ไม่เกิน ${baht(params.get('max_price'))} บาท/เดือน`]);
+      if (params.get('available')) labels.push(['available', '', 'ห้องว่าง']);
+      if (params.get('q')) labels.push(['q', '', `"${params.get('q')}"`]);
+      document.getElementById('activeFilters').innerHTML = labels
+        .map(([k, v, l]) => `<span class="chip accent">${esc(l)}<button data-k="${k}" data-v="${esc(v)}" aria-label="ลบเงื่อนไข">×</button></span>`)
+        .join(' ');
+    }
+
+    document.getElementById('activeFilters').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      const { k, v } = b.dataset;
+      if (['min_price', 'max_price', 'q'].includes(k)) form.elements[k].value = '';
+      else if (k === 'available') form.elements.available.checked = false;
+      else form.querySelector(`input[name=${k}][value="${CSS.escape(v)}"]`).checked = false;
+      if (k === 'gate' || k === 'zone') renderSoiOptions();
+      runSearch();
+    });
+
+    // ---------- ค้นหา
+    let searchSeq = 0;
+    async function runSearch({ push = true } = {}) {
+      const params = readForm();
+      if (push) history.replaceState(null, '', params.toString() ? `?${params}` : location.pathname);
+      renderActiveFilters(params);
+      highlightGates(params);
+      const seq = ++searchSeq;
+      const { count, results } = await api(`/api/properties?${params}`);
+      if (seq !== searchSeq) return; // ผลลัพธ์เก่าที่มาช้า
+      lastResults = results;
+      document.getElementById('count').textContent = `พบ ${count} ที่พัก`;
+      renderResults(results);
+      track('search', { params: Object.fromEntries(params), count });
+    }
+
+    function highlightGates(params) {
+      const selected = (params.get('gate') || '').split(',').map(Number);
+      gateMarkers.forEach((m, id) => m.setIcon(gateIcon(meta.gates.find((g) => g.id === id), selected.includes(id))));
+    }
+
+    function renderResults(results) {
+      const list = document.getElementById('results');
+      list.innerHTML = results.length
+        ? results.map((p) => propertyCard(p, { compact: true })).join('')
+        : `<div class="card empty">ไม่พบที่พักที่ตรงทุกเงื่อนไข<br><span class="small">ลองเพิ่มงบประมาณ ลดสิ่งอำนวยความสะดวก หรือเลือกประตูเพิ่ม</span></div>`;
+
+      propLayer.clearLayers();
+      propMarkers.clear();
+      for (const p of results) {
+        const m = L.marker([p.lat, p.lng], { icon: propIcon(p) })
+          .bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.type_name)} · ${priceRange(p.price_min, p.price_max)}<br>
+            ห่าง${esc(p.nearest_gate.gate_name)} ${distanceText(p.nearest_gate.straight_line_m)} (เส้นตรง)<br>
+            <a href="/property?id=${p.id}">ดูรายละเอียด</a>`)
+          .addTo(propLayer);
+        m.on('mouseover', () => highlight(p.id, true));
+        m.on('mouseout', () => highlight(p.id, false));
+        propMarkers.set(p.id, m);
+      }
+      const points = results.map((p) => [p.lat, p.lng]);
+      const gates = readForm().get('gate');
+      if (gates) meta.gates.filter((g) => gates.split(',').includes(String(g.id))).forEach((g) => points.push([g.lat, g.lng]));
+      if (points.length) fitTo(map, L.latLngBounds(points).pad(0.2), { maxZoom: 17 });
+    }
+
+    function highlight(id, on) {
+      const p = lastResults.find((r) => r.id === id);
+      propMarkers.get(id)?.setIcon(propIcon(p, on)).setZIndexOffset(on ? 1000 : 0);
+      document.querySelector(`.rcard[data-id="${id}"]`)?.classList.toggle('hl', on);
+    }
+
+    document.getElementById('results').addEventListener('mouseover', (e) => {
+      const c = e.target.closest('.rcard');
+      if (c) highlight(Number(c.dataset.id), true);
+    });
+    document.getElementById('results').addEventListener('mouseout', (e) => {
+      const c = e.target.closest('.rcard');
+      if (c && !c.contains(e.relatedTarget)) highlight(Number(c.dataset.id), false);
+    });
+
+    // ---------- เหตุการณ์ของฟอร์ม
+    let debounce;
+    form.addEventListener('input', (e) => {
+      if (e.target.name === 'gate' || e.target.name === 'zone') renderSoiOptions();
+      clearTimeout(debounce);
+      debounce = setTimeout(runSearch, e.target.type === 'checkbox' ? 0 : 350);
+    });
+    form.addEventListener('submit', (e) => e.preventDefault());
+    document.getElementById('sort').addEventListener('change', () => runSearch());
+    document.getElementById('pricePresets').addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      form.elements.max_price.value = b.dataset.max;
+      runSearch();
+    });
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      form.reset();
+      document.getElementById('sort').value = 'distance';
+      renderSoiOptions();
+      runSearch();
+    });
+    document.getElementById('filterToggle').addEventListener('click', () =>
+      document.getElementById('filterBox').classList.toggle('collapsed')
+    );
+
+    (async () => {
+      meta = await getMeta();
+      document.getElementById('fType').innerHTML = meta.types.map((t) => checkbox('type', t.code, t.name)).join('');
+      document.getElementById('fGate').innerHTML = meta.gates.map((g) => checkbox('gate', g.id, g.short_name)).join('');
+      document.getElementById('fZone').innerHTML = meta.zones.map((z) => checkbox('zone', z.id, z.name)).join('');
+      document.getElementById('fAmenity').innerHTML = meta.amenities.map((a) => checkbox('amenity', a.code, a.name)).join('');
+
+      // กดหมุดประตูบนแผนที่ = สลับการเลือกประตูนั้น
+      gateMarkers = addGateMarkers(map, meta.gates, (g) => {
+        const box = form.querySelector(`input[name=gate][value="${g.id}"]`);
+        box.checked = !box.checked;
+        track('gate_select', { gate_id: g.id, page: 'search', selected: box.checked });
+        renderSoiOptions();
+        runSearch();
+      });
+
+      const params = new URLSearchParams(location.search);
+      // เลือกเพียงซอยจากลิงก์ ให้ติ๊กซอยได้แม้ยังไม่ได้เลือกประตู
+      writeForm(params);
+      renderSoiOptions();
+      writeForm(params);
+      await runSearch({ push: false });
+    })().catch((err) => toast(err.message));
+  </script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>สำหรับผู้ประกอบการ — NU Dorm Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
+</head>
+<body>
+  <main id="page"></main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="/js/common.js"></script>
+  <script src="/js/property-form.js"></script>
+  <script src="/js/auth-box.js"></script>
+  <script>
+    renderHeader('provider');
+    const page = document.getElementById('page');
+    let me = null;
+
+    async function showList() {
+      history.replaceState(null, '', '/provider');
+      const rows = await api('/api/my/properties');
+      page.innerHTML = `
+        <div class="results-head">
+          <div><h1 style="margin:0">ประกาศที่พักของฉัน</h1><p class="muted" style="margin:0">${esc(me.name)} · ${esc(me.email)} · <a href="#" id="logout">ออกจากระบบ</a></p></div>
+          <button class="btn primary" id="newBtn">+ ลงประกาศที่พักใหม่</button>
+        </div>
+        <div class="notice info">ประกาศใหม่จะแสดงบนเว็บหลังผู้ดูแลตรวจสอบและอนุมัติ ส่วนการแก้ไขประกาศที่เผยแพร่แล้วจะถูกส่งเป็น "คำขอแก้ไข" ข้อมูลเดิมยังแสดงอยู่จนกว่าจะอนุมัติ</div>
+        ${rows.length ? `<div class="table-wrap"><table class="list">
+          <thead><tr><th>ชื่อที่พัก</th><th>ประเภท</th><th>ราคาเริ่มต้น</th><th>สถานะ</th><th>ตรวจสอบล่าสุด</th><th></th></tr></thead>
+          <tbody>${rows.map((r) => `<tr>
+            <td><b>${esc(r.name)}</b>
+              ${r.status === 'rejected' && r.review_note ? `<div class="small" style="color:var(--bad)">เหตุผล: ${esc(r.review_note)}</div>` : ''}
+              ${r.edit_status === 'pending' ? '<div class="small"><span class="chip warn">มีคำขอแก้ไขรอตรวจสอบ</span></div>' : ''}
+              ${r.edit_status === 'rejected' && r.edit_note ? `<div class="small" style="color:var(--bad)">คำขอแก้ไขล่าสุดไม่อนุมัติ: ${esc(r.edit_note)}</div>` : ''}
+            </td>
+            <td>${esc(r.type_name)}</td>
+            <td>${r.price_min ? baht(r.price_min) + ' บาท' : '-'}</td>
+            <td>${statusChip(r.status)}</td>
+            <td class="small">${thaiDate(r.verified_at)}</td>
+            <td style="white-space:nowrap"><a class="btn small" href="/property?id=${r.id}">ดู</a> <button class="btn small" data-edit="${r.id}">แก้ไข</button></td>
+          </tr>`).join('')}</tbody></table></div>`
+          : '<div class="card empty">ยังไม่มีประกาศ กด "ลงประกาศที่พักใหม่" เพื่อเริ่มต้น</div>'}`;
+      page.querySelector('#newBtn').onclick = () => showForm();
+      page.querySelector('#logout').onclick = async (e) => {
+        e.preventDefault();
+        await api('/api/auth/logout', { method: 'POST' });
+        location.reload();
+      };
+      page.querySelectorAll('[data-edit]').forEach((b) => (b.onclick = () => showForm(Number(b.dataset.edit))));
+    }
+
+    async function showForm(id) {
+      history.replaceState(null, '', id ? `/provider?edit=${id}` : '/provider?new=1');
+      let initial = {};
+      let note = '';
+      if (id) {
+        const p = await api(`/api/my/properties/${id}`);
+        // ถ้ามีคำขอแก้ไขค้างอยู่ ให้แก้ต่อจากฉบับที่ส่งล่าสุด
+        initial = p.pending_edit ? { ...p.pending_edit.payload, type_code: undefined, type_id: p.pending_edit.payload.type_id } : p;
+        if (p.pending_edit) {
+          const t = (await getMeta()).types.find((t) => t.id === initial.type_id);
+          initial.type_code = t?.code;
+          note = '<div class="notice">กำลังแก้ไขต่อจากคำขอแก้ไขที่ยังรอตรวจสอบ การบันทึกครั้งนี้จะแทนที่คำขอเดิม</div>';
+        } else if (p.status === 'published') {
+          note = '<div class="notice info">ประกาศนี้เผยแพร่อยู่ การแก้ไขจะส่งให้ผู้ดูแลตรวจสอบก่อน ระหว่างนี้ผู้ใช้ยังเห็นข้อมูลเดิม</div>';
+        }
+      }
+      page.innerHTML = `<h1>${id ? 'แก้ไขประกาศ' : 'ลงประกาศที่พักใหม่'}</h1>${note}<div id="formHost"></div>`;
+      await mountPropertyForm(page.querySelector('#formHost'), {
+        initial,
+        submitLabel: id ? 'ส่งการแก้ไขให้ผู้ดูแลตรวจสอบ' : 'ส่งประกาศให้ผู้ดูแลตรวจสอบ',
+        onCancel: showList,
+        onSubmit: async (body) => {
+          const res = id
+            ? await api(`/api/my/properties/${id}`, { method: 'PUT', body })
+            : await api('/api/my/properties', { method: 'POST', body });
+          toast(res.edit_request ? 'ส่งคำขอแก้ไขแล้ว รอผู้ดูแลตรวจสอบ' : 'ส่งข้อมูลแล้ว รอผู้ดูแลตรวจสอบ');
+          showList();
+        },
+      });
+    }
+
+    (async () => {
+      me = await api('/api/auth/me');
+      if (!me) {
+        return renderAuthBox(page, {
+          title: 'สำหรับผู้ประกอบการ / ผู้ให้เช่า',
+          intro: 'ลงประกาศหอพัก อพาร์ตเมนต์ คอนโด หรือบ้านเช่ารอบมหาวิทยาลัยนเรศวร ฟรี',
+          allowRegister: true,
+          onDone: () => location.reload(),
+        });
+      }
+      const params = new URLSearchParams(location.search);
+      if (params.get('edit')) showForm(Number(params.get('edit')));
+      else if (params.get('new')) showForm();
+      else showList();
+    })().catch((err) => toast(err.message));
+  </script>
+</body>
+</html>

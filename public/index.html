@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NU Dorm Finder — ค้นหาที่พักรอบมหาวิทยาลัยนเรศวร</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="hero-inner">
+        <h1>หาที่พักรอบ ม.นเรศวร<br>เริ่มจากทำเลที่ใช่</h1>
+        <p class="lead">สำรวจตำแหน่งประตูและค้นหาหอพัก คอนโด หรือบ้านเช่า ที่เหมาะกับงบประมาณของคุณ</p>
+        <form class="hero-search" id="heroSearch" action="/search" role="search">
+          <div class="hs-field hs-q">
+            <label for="hsQ">คำค้น</label>
+            <input type="text" id="hsQ" name="q" placeholder="ค้นหาชื่อที่พักหรือซอย" autocomplete="off">
+          </div>
+          <div class="hs-field">
+            <label for="hsType">ประเภทที่พัก</label>
+            <select id="hsType" name="type">
+              <option value="">ทุกประเภท</option>
+              <option value="dorm,apartment">หอพัก/อพาร์ตเมนต์</option>
+              <option value="condo">คอนโด</option>
+              <option value="house">บ้านเช่า</option>
+            </select>
+          </div>
+          <div class="hs-field">
+            <label for="hsBudget">งบต่อเดือน (บาท/เดือน)</label>
+            <!-- ค่าเป็น "ต่ำสุด-สูงสุด" แล้วแปลงเป็น min_price / max_price ตอนส่ง -->
+            <select id="hsBudget" name="budget">
+              <option value="">ทุกช่วงราคา</option>
+              <option value="-2000">ไม่เกิน 2,000 บาท/เดือน</option>
+              <option value="-3000">ไม่เกิน 3,000 บาท/เดือน</option>
+              <option value="-4000">ไม่เกิน 4,000 บาท/เดือน</option>
+              <option value="-5000">ไม่เกิน 5,000 บาท/เดือน</option>
+              <option value="5001-">มากกว่า 5,000 บาท/เดือน</option>
+            </select>
+          </div>
+          <button class="btn primary hs-submit" type="submit">ค้นหาที่พัก</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="explore">
+      <div class="explore">
+        <h2 style="font-size:1.6rem">สำรวจที่พักรอบ ม.นเรศวร</h2>
+        <p>เลือกประตูบนแผนที่เพื่อดูตำแหน่งและที่พักในแต่ละโซน</p>
+      </div>
+      <div class="map-wrap"><div id="map" class="map home-map"></div><span class="map-badge">พิกัดประตูโดยประมาณ</span></div>
+      <div class="gate-buttons" id="gateButtons"></div>
+      <div id="gatePanel" class="card gate-panel hidden"></div>
+      <p class="small muted" style="text-align:center;margin:4px 0 0">หมุดหยดน้ำสีเขียว = ประตูมหาวิทยาลัย · หมุดสีส้ม = ที่พัก (ราคาเริ่มต้น)</p>
+    </section>
+
+    <div class="section-title"><h2>ที่พักแนะนำ</h2><a href="/search?sort=verified">ดูทั้งหมด →</a></div>
+    <div class="cards" id="featured"></div>
+
+    <div class="zone-head">
+      <h2><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="currentColor" d="M15 5.1 9 3 3 5.1v15.9l6-2.1 6 2.1 6-2.1V3l-6 2.1Zm-1 13.5-4-1.4V5.4l4 1.4v11.8Z"/></svg>ทำความรู้จักแต่ละโซนประตู ม.นเรศวร</h2>
+      <p>ข้อมูลสรุปทำเล ซอย และจุดเด่นของแต่ละประตูเพื่อช่วยตัดสินใจเลือกที่พัก</p>
+    </div>
+    <div class="zone-grid" id="zones"></div>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="/js/common.js"></script>
+  <script>
+    renderHeader('home');
+    // ส่งคำค้น ประเภท และงบ ไปหน้าผลการค้นหา (ช่องที่ว่างไม่ถูกส่ง จึงแสดงที่พักทั้งหมด)
+    document.getElementById('heroSearch').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const f = e.target.elements;
+      const params = new URLSearchParams();
+      const q = f.q.value.trim();
+      if (q) params.set('q', q);
+      if (f.type.value) params.set('type', f.type.value);
+      const [min, max] = f.budget.value.split('-');
+      if (min) params.set('min_price', min);
+      if (max) params.set('max_price', max);
+      location.href = '/search' + (params.toString() ? '?' + params : '');
+    });
+    const map = createMap('map', { zoom: 15, scrollWheelZoom: false });
+    let meta, gateMarkers, propLayer = L.layerGroup().addTo(map), activeGate = null;
+
+    async function showAll() {
+      activeGate = null;
+      gateMarkers.forEach((m, id) => m.setIcon(gateIcon(meta.gates.find((g) => g.id === id))));
+      document.querySelectorAll('.gate-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === 'all'));
+      document.getElementById('gatePanel').classList.add('hidden');
+      const { results } = await api('/api/properties');
+      drawProperties(results);
+      fitTo(map, L.latLngBounds(meta.gates.map((g) => [g.lat, g.lng])).pad(0.25));
+    }
+
+    function selectGate(gate) {
+      activeGate = gate.id;
+      track('gate_select', { gate_id: gate.id, page: 'home' });
+      gateMarkers.forEach((m, id) => m.setIcon(gateIcon(meta.gates.find((g) => g.id === id), id === gate.id)));
+      document.querySelectorAll('.gate-btn').forEach((b) => b.classList.toggle('active', Number(b.dataset.id) === gate.id));
+      map.flyTo([gate.lat, gate.lng], 16, { duration: 0.6 });
+
+      const zones = meta.zones.filter((z) => z.gate_ids.includes(gate.id));
+      const sois = meta.sois.filter((s) => s.gate_ids.includes(gate.id));
+      document.getElementById('gatePanel').classList.remove('hidden');
+      document.getElementById('gatePanel').innerHTML = `<div class="card-body">
+        <h3>${esc(gate.name)}</h3>
+        <p class="muted small" style="margin:0 0 8px">${esc(gate.description || '')}</p>
+        ${zones.map((z) => `<p style="margin:0 0 6px"><b>${esc(z.name)}</b> — ${richText(z.description || '')}<br><span class="small muted">${esc(z.travel_tips || '')}</span></p>`).join('')}
+        <div class="small" style="font-weight:600;margin-top:10px">ซอยที่เชื่อมกับ${esc(gate.short_name)}</div>
+        <div class="soi-list">${sois.length ? sois.map((s) => `<a class="chip accent" href="/search?gate=${gate.id}&soi=${s.id}">${esc(s.name)}</a>`).join('') : '<span class="muted small">ยังไม่มีข้อมูลซอย</span>'}</div>
+        <a class="btn primary" href="/search?gate=${gate.id}">ดูที่พักใกล้${esc(gate.short_name)} (${gate.property_count})</a>
+      </div>`;
+      loadGateProperties(gate);
+    }
+
+    async function loadGateProperties(gate) {
+      const { results } = await api(`/api/properties?gate=${gate.id}`);
+      drawProperties(results);
+    }
+
+    function drawProperties(results) {
+      propLayer.clearLayers();
+      for (const p of results) {
+        L.marker([p.lat, p.lng], { icon: propIcon(p) })
+          .bindPopup(`<b>${esc(p.name)}</b><br>${priceRange(p.price_min, p.price_max)}<br><a href="/property?id=${p.id}">ดูรายละเอียด</a>`)
+          .addTo(propLayer);
+      }
+    }
+
+    (async () => {
+      meta = await getMeta();
+      gateMarkers = addGateMarkers(map, meta.gates, selectGate);
+
+      document.getElementById('gateButtons').innerHTML =
+        '<button class="btn gate-btn active" data-id="all">ทุกโซน</button>' +
+        meta.gates.map((g) => `<button class="btn gate-btn" data-id="${g.id}">${esc(g.short_name)}</button>`).join('');
+      document.getElementById('gateButtons').addEventListener('click', (e) => {
+        const b = e.target.closest('.gate-btn');
+        if (!b) return;
+        if (b.dataset.id === 'all') showAll();
+        else selectGate(meta.gates.find((g) => g.id === Number(b.dataset.id)));
+      });
+      showAll();
+
+      // การ์ดโซน: ป้ายประตู + จุดเด่น + ซอยสำคัญ (ครบทุกประตู เพราะทุกประตูอยู่ในโซนใดโซนหนึ่ง)
+      document.getElementById('zones').innerHTML = meta.zones.map((z) => {
+        const gates = meta.gates.filter((g) => z.gate_ids.includes(g.id));
+        const badge = gates.length ? 'ประตู ' + gates.map((g) => g.short_name.replace(/^ประตู\s*/, '')).join(' & ') : 'ไม่ระบุประตู';
+        const keySois = z.key_sois || meta.sois.filter((s) => s.zone_id === z.id).map((s) => s.name).join(', ');
+        const gateQuery = gates.map((g) => g.id).join(',');
+        return `<a class="zone-card2" href="/search?${gateQuery ? 'gate=' + gateQuery : 'zone=' + z.id}">
+          <div class="zc-top"><span class="zc-badge c-${esc(z.color || 'teal')}">${esc(badge)}</span><span class="zc-tag">${esc(z.tagline || '')}</span></div>
+          <h3>${esc(z.name)}</h3>
+          <p>${richText(z.description || '')}</p>
+          <div class="zc-sois">${keySois ? `<b>ซอยสำคัญ:</b> ${esc(keySois)}` : ''}</div>
+          <span class="zc-link">ดูที่พักในโซนนี้ →</span>
+        </a>`;
+      }).join('');
+
+      const featured = await api('/api/featured');
+      document.getElementById('featured').innerHTML = featured.length
+        ? featured.map((p) => propertyCard(p)).join('')
+        : '<p class="muted">ยังไม่มีที่พักที่เผยแพร่</p>';
+    })().catch((err) => toast(err.message));
+  </script>
+</body>
+</html>

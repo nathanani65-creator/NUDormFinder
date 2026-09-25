@@ -1,0 +1,20 @@
+{
+  "name": "nu-dorm-finder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ระบบค้นหาที่พักรอบมหาวิทยาลัยนเรศวร ด้วยการค้นหาแบบใช้ตัวกรองตามเงื่อนไขร่วมกับแผนที่",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch-path=server server/index.js",
+    "seed": "node --disable-warning=ExperimentalWarning server/seed.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="26 18 204 110" width="204" height="110" role="img" aria-label="NU">
+  <g fill="#1b6a6f">
+    <!-- หลังคาและปล่องไฟ -->
+    <path d="M60 63V36h18v17z"/>
+    <path d="M33 79 127 24 222 79" fill="none" stroke="#1b6a6f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- N -->
+    <path d="M60 122V72h24l28 32V72h18v50h-24L78 90v32z"/>
+    <!-- U -->
+    <path d="M141 72h18v22a11 11 0 0 0 22 0V72h18v22a29 29 0 0 1-58 0z"/>
+  </g>
+  <!-- หมุดตำแหน่งในตัว U -->
+  <path d="M170 106c-5-7-11-14-11-23a11 11 0 0 1 22 0c0 9-6 16-11 23z" fill="#f4fbfa" stroke="#1b6a6f" stroke-width="4" stroke-linejoin="round"/>
+  <path d="m176 76-12 5.5 5.2 1.3 1.3 5.2z" fill="#e0783a"/>
+</svg>
