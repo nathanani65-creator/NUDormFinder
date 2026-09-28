@@ -111,7 +111,6 @@ test('Facet: เลือกประตู 4 แล้ว ตัวเลขข
 test('Facet: ตัวเลขกลุ่ม OR = จำนวนผลลัพธ์จริงเมื่อเลือกค่านั้นในกลุ่ม ร่วมกับตัวกรองกลุ่มอื่น', () => {
   const meta = {
     type: db.prepare('SELECT code AS v FROM property_types').all().map((r) => r.v),
-    zone: db.prepare('SELECT id AS v FROM zones').all().map((r) => String(r.v)),
   };
   for (const q of scenarios()) {
     const f = facets(q);

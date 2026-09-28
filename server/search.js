@@ -185,7 +185,7 @@ function roomExists({ min = null, max = null, availableOnly = false }, params) {
 
 /**
  * สร้างเงื่อนไข WHERE จากตัวกรอง
- * exclude: ชื่อกลุ่มที่ไม่ต้องใส่เงื่อนไข (type, zone, amenity, price, distance) ใช้ตอนนับจำนวนแบบ disjunctive
+ * exclude: ชื่อกลุ่มที่ไม่ต้องใส่เงื่อนไข (type, amenity, price, distance) ใช้ตอนนับจำนวนแบบ disjunctive
  * filters ต้องผ่าน resolveFilters ก่อน
  */
 function buildWhere(filters, { exclude = [] } = {}) {
@@ -230,7 +230,7 @@ function buildWhere(filters, { exclude = [] } = {}) {
 
 /**
  * นับจำนวนที่พักข้างตัวเลือกแต่ละตัว (Facet Counts)
- *  - ประเภท โซน (OR): นับโดยไม่ใส่เงื่อนไขของกลุ่มตัวเอง แต่ใส่กลุ่มอื่นครบ (Disjunctive Faceting)
+ *  - ประเภท (OR): นับโดยไม่ใส่เงื่อนไขของกลุ่มตัวเอง แต่ใส่กลุ่มอื่นครบ (Disjunctive Faceting)
  *    ตัวเลข = จำนวนที่พักถ้าเลือกค่านี้ในกลุ่มนั้น ร่วมกับตัวกรองกลุ่มอื่นที่เลือกอยู่
  *  - ประตู: จำนวนที่พักของประตูนั้นทุกซอย ร่วมกับตัวกรองอื่น (ระยะทางวัดจากประตูนั้นเอง)
  *  - ซอยใต้ประตูที่เลือก (soi_by_gate): จำนวนที่พักของประตูนั้นในซอยนั้น ร่วมกับตัวกรองอื่น
@@ -256,7 +256,6 @@ function computeFacets(db, rawFilters) {
 
   const facets = {
     type: grouped(['type'], 't.code'),
-    zone: grouped(['zone'], 's.zone_id'),
     amenity: grouped([], 'fa.code', 'JOIN property_amenities fpa ON fpa.property_id = p.id JOIN amenities fa ON fa.id = fpa.amenity_id'),
   };
 

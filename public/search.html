@@ -25,6 +25,8 @@
               <input type="text" id="q" name="q" placeholder="เช่น กระบอก">
             </div>
             <fieldset><legend>ประเภทที่พัก <span class="rule">(เลือกได้หลายค่า)</span></legend><div id="fType"></div></fieldset>
+            <!-- โซนไม่มีตัวกรองบนหน้านี้ แต่ลิงก์การ์ดโซนจากหน้าแรกยังส่ง zone= มาได้ (แสดงเป็นป้ายเงื่อนไข) -->
+            <input type="hidden" name="zone" value="">
             <fieldset><legend>ประตูและซอย <span class="rule">(ใกล้ประตูใดก็ได้ที่เลือก)</span></legend><div id="fGate"></div></fieldset>
             <fieldset>
               <legend>ระยะจากประตู <span class="rule">(ระยะเส้นตรง)</span></legend>
@@ -35,9 +37,7 @@
                 <label class="check facet-option"><input type="radio" name="max_distance" value="2000"> <span class="facet-label">ไม่เกิน 2 กม.</span><span class="facet-count" aria-hidden="true"></span></label>
               </div>
               <p class="small muted" style="margin:6px 0 0">วัดจากประตูที่เลือก ถ้ายังไม่เลือกประตู วัดจากประตูที่ใกล้ที่พักที่สุด</p>
-            </fieldset>
-            <fieldset><legend>โซน</legend><div id="fZone"></div></fieldset>
-            <fieldset>
+            </fieldset>            <fieldset>
               <legend>ราคาต่อเดือน (บาท) <span class="rule">(มีห้องในช่วงนี้)</span></legend>
               <div class="grid-2">
                 <input type="number" name="min_price" min="0" step="100" placeholder="ต่ำสุด" aria-label="ราคาต่ำสุด">
@@ -112,7 +112,7 @@
         label.title = zero ? 'ไม่มีที่พักที่ตรงกับตัวกรองที่เลือกอยู่' : '';
         input.setAttribute('aria-label', `${label.querySelector('.facet-label').textContent} ${n} ที่พัก`);
       };
-      for (const group of ['type', 'gate', 'zone', 'amenity', 'distance']) {
+      for (const group of ['type', 'gate', 'amenity', 'distance']) {
         const name = group === 'distance' ? 'max_distance' : group;
         form.querySelectorAll(`input[name=${name}]`).forEach((input) => {
           if (input.value !== '') show(input, facets[group]?.[input.value] ?? 0); // "ไม่จำกัด" ไม่มีตัวเลข
@@ -140,11 +140,11 @@
     function readForm() {
       const fd = new FormData(form);
       const params = new URLSearchParams();
-      for (const key of ['type', 'gate', 'zone', 'soi', 'amenity']) {
+      for (const key of ['type', 'gate', 'soi', 'amenity']) {
         const vals = [...new Set(fd.getAll(key))]; // ซอยที่อยู่ใต้หลายประตูมีช่องติ๊กหลายช่อง
         if (vals.length) params.set(key, vals.join(','));
       }
-      for (const key of ['q', 'min_price', 'max_price']) {
+      for (const key of ['q', 'min_price', 'max_price', 'zone']) {
         const v = String(fd.get(key) || '').trim();
         if (v) params.set(key, v);
       }
@@ -156,11 +156,11 @@
     }
 
     function writeForm(params) {
-      for (const key of ['type', 'gate', 'zone', 'soi', 'amenity']) {
+      for (const key of ['type', 'gate', 'soi', 'amenity']) {
         const vals = (params.get(key) || '').split(',').filter(Boolean);
         form.querySelectorAll(`input[name=${key}]`).forEach((i) => (i.checked = vals.includes(i.value)));
       }
-      for (const key of ['q', 'min_price', 'max_price']) form.elements[key].value = params.get(key) || '';
+      for (const key of ['q', 'min_price', 'max_price', 'zone']) form.elements[key].value = params.get(key) || '';
       form.elements.available.checked = params.get('available') === '1';
       const dist = form.querySelector(`input[name=max_distance][value="${CSS.escape(params.get('max_distance') || '')}"]`);
       (dist || form.querySelector('input[name=max_distance][value=""]')).checked = true;
@@ -176,7 +176,7 @@
           ${checkbox('gate', g.id, g.short_name)}
           ${sois.length ? `<div class="soi-sub" role="group" aria-label="ซอยของ${esc(g.short_name)}" hidden>
             <label class="check facet-option soi-all-opt"><input type="checkbox" class="soi-all" data-gate="${g.id}"> <span class="facet-label">ทุกซอย</span><span class="facet-count" aria-hidden="true"></span></label>
-            ${sois.map((s) => `<label class="check facet-option" data-zone="${s.zone_id}"><input type="checkbox" name="soi" value="${s.id}" data-gate="${g.id}"> <span class="facet-label">${esc(s.name)}</span><span class="facet-count" aria-hidden="true"></span></label>`).join('')}
+            ${sois.map((s) => `<label class="check facet-option"><input type="checkbox" name="soi" value="${s.id}" data-gate="${g.id}"> <span class="facet-label">${esc(s.name)}</span><span class="facet-count" aria-hidden="true"></span></label>`).join('')}
           </div>` : ''}
         </div>`;
       }).join('');
@@ -194,18 +194,12 @@
       });
     }
 
-    /** แสดง/ซ่อนรายการซอยตามประตูที่เลือก ซ่อนซอยนอกโซนที่เลือก และตั้งสถานะ "ทุกซอย" */
+    /** แสดง/ซ่อนรายการซอยตามประตูที่เลือก และตั้งสถานะ "ทุกซอย" */
     function syncGateTree() {
-      const zones = [...form.querySelectorAll('input[name=zone]:checked')].map((i) => i.value);
       form.querySelectorAll('.gate-node').forEach((node) => {
         const sub = node.querySelector('.soi-sub');
         if (!sub) return;
         sub.hidden = !node.querySelector('input[name=gate]').checked;
-        sub.querySelectorAll('input[name=soi]').forEach((i) => {
-          const outside = zones.length > 0 && !zones.includes(i.closest('label').dataset.zone);
-          i.closest('label').hidden = outside;
-          if (outside && i.checked) setSoi(i.value, false);
-        });
         sub.querySelector('.soi-all').checked = !sub.querySelector('input[name=soi]:checked');
       });
       updateFacetCounts(lastFacets);
@@ -243,9 +237,10 @@
       if (['min_price', 'max_price', 'q'].includes(k)) form.elements[k].value = '';
       else if (k === 'available') form.elements.available.checked = false;
       else if (k === 'max_distance') form.querySelector('input[name=max_distance][value=""]').checked = true;
+      else if (k === 'zone') form.elements.zone.value = form.elements.zone.value.split(',').filter((z) => z !== v).join(',');
       else form.querySelectorAll(`input[name=${k}][value="${CSS.escape(v)}"]`).forEach((i) => (i.checked = false));
       if (k === 'gate') releaseGate(v);
-      if (['gate', 'zone', 'soi'].includes(k)) syncGateTree();
+      if (['gate', 'soi'].includes(k)) syncGateTree();
       runSearch();
     });
 
@@ -321,7 +316,7 @@
       }
       if (t.name === 'soi') setSoi(t.value, t.checked);
       if (t.name === 'gate' && !t.checked) releaseGate(t.value);
-      if (['gate', 'zone', 'soi'].includes(t.name) || t.classList.contains('soi-all')) syncGateTree();
+      if (['gate', 'soi'].includes(t.name) || t.classList.contains('soi-all')) syncGateTree();
       clearTimeout(debounce);
       debounce = setTimeout(runSearch, ['checkbox', 'radio'].includes(e.target.type) ? 0 : 350);
     });
@@ -366,9 +361,7 @@
     (async () => {
       meta = await getMeta();
       document.getElementById('fType').innerHTML = meta.types.map((t) => checkbox('type', t.code, t.name)).join('');
-      document.getElementById('fGate').innerHTML = gateTreeHtml();
-      document.getElementById('fZone').innerHTML = meta.zones.map((z) => checkbox('zone', z.id, z.name)).join('');
-      document.getElementById('fAmenity').innerHTML = meta.amenities.map((a) => checkbox('amenity', a.code, a.name)).join('');
+      document.getElementById('fGate').innerHTML = gateTreeHtml();      document.getElementById('fAmenity').innerHTML = meta.amenities.map((a) => checkbox('amenity', a.code, a.name)).join('');
 
       // กดหมุดประตูบนแผนที่ = สลับการเลือกประตูนั้น
       gateMarkers = addGateMarkers(map, meta.gates, (g) => {
