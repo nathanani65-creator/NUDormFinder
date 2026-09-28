@@ -57,6 +57,7 @@ function parseFilters(query = {}) {
     minPrice: toPositiveInt(query.min_price),
     maxPrice: toPositiveInt(query.max_price),
     availableOnly: query.available === '1' || query.available === 'true',
+    maxDistance: toPositiveInt(query.max_distance) || null,
     q: typeof query.q === 'string' ? query.q.trim().slice(0, 100) : '',
     sort,
   };
@@ -81,6 +82,50 @@ const PRICE_BUCKETS = [
   { key: '5001-', min: 5001 },
 ];
 
+// ช่วงระยะสำเร็จรูปของตัวกรองระยะทาง (เมตร, ระยะเส้นตรง)
+const DISTANCE_BUCKETS = [500, 1000, 2000];
+
+/**
+ * ประตูที่ใช้วัดระยะของที่พัก: ถ้าผู้ใช้เลือกประตู ใช้ประตูที่เลือกซึ่งใกล้ที่สุด
+ * ไม่เช่นนั้นใช้ประตูที่เกี่ยวข้องที่ใกล้ที่สุด (ไม่มีประตูที่เกี่ยวข้อง ใช้ทุกประตู)
+ * ใช้ทั้งตอนกรองระยะทางและตอนแสดงระยะบนการ์ด เพื่อให้ตัวเลขตรงกัน
+ */
+function pickNearest(distances, selectedGates) {
+  const pool = distances.filter((d) => (selectedGates.size ? selectedGates.has(d.gate_id) : d.related));
+  return (pool.length ? pool : distances).reduce((a, b) => (a.straight_line_m <= b.straight_line_m ? a : b));
+}
+
+/** ระยะเส้นตรง (เมตร) จากที่พักที่เผยแพร่แล้วแต่ละแห่ง ถึงประตูอ้างอิงตาม pickNearest */
+function referenceDistances(db, gateIds) {
+  const gates = db.prepare('SELECT id, lat, lng FROM gates').all();
+  if (!gates.length) return new Map();
+  const related = new Map();
+  for (const l of db.prepare('SELECT property_id, gate_id FROM property_gates').all()) {
+    if (!related.has(l.property_id)) related.set(l.property_id, new Set());
+    related.get(l.property_id).add(l.gate_id);
+  }
+  const selected = new Set(gateIds);
+  const out = new Map();
+  for (const p of db.prepare("SELECT id, lat, lng FROM properties WHERE status = 'published'").all()) {
+    const rel = related.get(p.id) || new Set();
+    const distances = gates.map((g) => ({
+      gate_id: g.id,
+      related: rel.has(g.id),
+      straight_line_m: Math.round(haversineMeters(p.lat, p.lng, g.lat, g.lng)),
+    }));
+    out.set(p.id, pickNearest(distances, selected).straight_line_m);
+  }
+  return out;
+}
+
+/** ถ้าเลือกตัวกรองระยะทาง: คำนวณรายการที่พักที่อยู่ในระยะ (nearIds) ให้ buildWhere ใช้ */
+function resolveDistance(db, filters) {
+  if (!filters.maxDistance) return filters;
+  const nearIds = [];
+  for (const [id, m] of referenceDistances(db, filters.gates)) if (m <= filters.maxDistance) nearIds.push(id);
+  return { ...filters, nearIds };
+}
+
 /** เงื่อนไขห้องพัก: มีห้องอย่างน้อยหนึ่งประเภทที่ราคาอยู่ในช่วง (และว่าง ถ้าเลือก) */
 function roomExists({ min = null, max = null, availableOnly = false }, params) {
   const conds = ['r.property_id = p.id'];
@@ -92,7 +137,8 @@ function roomExists({ min = null, max = null, availableOnly = false }, params) {
 
 /**
  * สร้างเงื่อนไข WHERE จากตัวกรอง
- * exclude: ชื่อกลุ่มที่ไม่ต้องใส่เงื่อนไข (type, gate, zone, soi, amenity, price) ใช้ตอนนับจำนวนแบบ disjunctive
+ * exclude: ชื่อกลุ่มที่ไม่ต้องใส่เงื่อนไข (type, gate, zone, soi, amenity, price, distance) ใช้ตอนนับจำนวนแบบ disjunctive
+ * ตัวกรองระยะทางต้องผ่าน resolveDistance ก่อน เพราะระยะคำนวณด้วย Haversine นอก SQL
  */
 function buildWhere(filters, { exclude = [] } = {}) {
   const skip = new Set(exclude);
@@ -128,6 +174,10 @@ function buildWhere(filters, { exclude = [] } = {}) {
   if (price.min != null || price.max != null || filters.availableOnly) {
     where.push(roomExists({ ...price, availableOnly: filters.availableOnly }, params));
   }
+  if (filters.nearIds && !skip.has('distance')) {
+    where.push(filters.nearIds.length ? `p.id IN (${placeholders(filters.nearIds)})` : '0');
+    params.push(...filters.nearIds);
+  }
   if (filters.q) {
     where.push('(p.name LIKE ? OR p.address LIKE ? OR s.name LIKE ?)');
     const like = `%${filters.q.replace(/[%_]/g, '')}%`;
@@ -143,9 +193,12 @@ function buildWhere(filters, { exclude = [] } = {}) {
  *  - สิ่งอำนวยความสะดวก (AND): นับโดยใส่เงื่อนไขทุกกลุ่ม (Conjunctive Faceting)
  *    ตัวเลข = จำนวนที่พักที่จะเหลือถ้าติ๊กข้อนี้เพิ่ม
  *  - ราคา: นับตามช่วงราคาสำเร็จรูป โดยไม่ใส่เงื่อนไขราคาที่เลือกอยู่
+ *  - ระยะทาง: นับตามช่วงระยะสำเร็จรูป โดยไม่ใส่เงื่อนไขระยะที่เลือกอยู่
  * นับจำนวนที่พัก (DISTINCT p.id) ไม่ใช่จำนวนห้อง และนับเฉพาะที่พักที่เผยแพร่แล้ว
  */
-function computeFacets(db, filters) {
+function computeFacets(db, rawFilters) {
+  const filters = resolveDistance(db, rawFilters);
+  const count = (w) => db.prepare(`SELECT COUNT(*) AS n ${BASE_FROM} WHERE ${w.sql}`).get(...w.params).n;
   const grouped = (exclude, keyExpr, join = '') => {
     const w = buildWhere(filters, { exclude });
     const rows = db
@@ -167,6 +220,20 @@ function computeFacets(db, filters) {
   const cols = PRICE_BUCKETS.map((b, i) => `SUM(${roomExists({ min: b.min, max: b.max, availableOnly: filters.availableOnly }, bucketParams)}) AS b${i}`);
   const row = db.prepare(`SELECT ${cols.join(', ')} ${BASE_FROM} WHERE ${w.sql}`).get(...bucketParams, ...w.params);
   facets.price = Object.fromEntries(PRICE_BUCKETS.map((b, i) => [b.key, row[`b${i}`] || 0]));
+
+  // เมื่อกรองระยะทาง ระยะวัดจากประตูที่เลือก ตัวเลขของประตูแต่ละประตูจึงต้องวัดระยะจากประตูนั้นเอง
+  if (filters.maxDistance) {
+    facets.gate = {};
+    for (const { id } of db.prepare('SELECT id FROM gates').all()) {
+      const n = count(buildWhere(resolveDistance(db, { ...rawFilters, gates: [id] })));
+      if (n) facets.gate[id] = n;
+    }
+  }
+
+  const base = buildWhere(filters, { exclude: ['distance'] });
+  const ids = db.prepare(`SELECT p.id ${BASE_FROM} WHERE ${base.sql}`).all(...base.params).map((r) => r.id);
+  const ref = referenceDistances(db, filters.gates);
+  facets.distance = Object.fromEntries(DISTANCE_BUCKETS.map((m) => [String(m), ids.filter((id) => ref.get(id) <= m).length]));
   return facets;
 }
 
@@ -174,7 +241,7 @@ function computeFacets(db, filters) {
  * สร้าง SQL จากเงื่อนไข แล้วคืนรายการที่พักพร้อมระยะเส้นตรงถึงแต่ละประตู
  */
 function searchProperties(db, filters) {
-  const { sql, params } = buildWhere(filters);
+  const { sql, params } = buildWhere(resolveDistance(db, filters));
 
   const rows = db
     .prepare(
@@ -232,12 +299,7 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
       related: related.has(g.id),
       straight_line_m: Math.round(haversineMeters(r.lat, r.lng, g.lat, g.lng)),
     }));
-    const pool = distances.filter((d) =>
-      selectedGates.size ? selectedGates.has(d.gate_id) : d.related
-    );
-    const nearest = (pool.length ? pool : distances).reduce((a, b) =>
-      a.straight_line_m <= b.straight_line_m ? a : b
-    );
+    const nearest = pickNearest(distances, selectedGates);
     return {
       ...r,
       gates: distances.filter((d) => d.related).map((d) => ({ id: d.gate_id, name: d.gate_name })),
@@ -257,4 +319,4 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
   return results;
 }
 
-module.exports = { parseFilters, searchProperties, computeFacets, buildWhere, decorate, haversineMeters, PRICE_BUCKETS };
+module.exports = { parseFilters, searchProperties, computeFacets, buildWhere, decorate, haversineMeters, PRICE_BUCKETS, DISTANCE_BUCKETS };

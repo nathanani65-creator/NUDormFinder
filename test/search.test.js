@@ -153,6 +153,53 @@ test('Facet: ช่วงราคาสำเร็จรูป = จำนว�
   }
 });
 
+// ---------------------------------------------------------------- ตัวกรองระยะทาง
+test('ระยะทาง: ผลทุกรายการอยู่ในระยะเส้นตรงที่เลือก วัดจากประตูที่เลือก', () => {
+  const g5 = String(gateId('ประตู 5'));
+  const all = search({ gate: g5 });
+  const near = search({ gate: g5, max_distance: '500' });
+  assert.ok(near.length > 0 && near.length < all.length, 'ข้อมูลตัวอย่างควรมีทั้งที่พักในและนอกระยะ');
+  assert.ok(near.every((r) => r.nearest_gate.gate_name === 'ประตู 5' && r.nearest_gate.straight_line_m <= 500));
+  assert.deepEqual(
+    near.map((r) => r.id).sort(),
+    all.filter((r) => r.nearest_gate.straight_line_m <= 500).map((r) => r.id).sort()
+  );
+});
+
+test('ระยะทาง: ไม่เลือกประตู วัดจากประตูที่เกี่ยวข้องที่ใกล้ที่สุด (ตรงกับระยะบนการ์ด)', () => {
+  const all = search({});
+  const near = search({ max_distance: '1000' });
+  assert.deepEqual(
+    near.map((r) => r.id).sort(),
+    all.filter((r) => r.nearest_gate.straight_line_m <= 1000).map((r) => r.id).sort()
+  );
+});
+
+test('Facet: ตัวเลขช่วงระยะ = จำนวนผลลัพธ์จริงเมื่อเลือกช่วงนั้น', () => {
+  const { DISTANCE_BUCKETS } = require('../server/search');
+  for (const q of [...scenarios(), { gate: String(gateId('ประตู 5')), max_distance: '500' }]) {
+    const f = facets(q);
+    for (const m of DISTANCE_BUCKETS) {
+      assert.equal(f.distance[m], count({ ...q, max_distance: String(m) }), `${JSON.stringify(q)} → ≤ ${m} ม.`);
+    }
+  }
+});
+
+test('Facet: เมื่อกรองระยะทาง ตัวเลขของแต่ละประตูวัดระยะจากประตูนั้นเอง', () => {
+  const gates = db.prepare('SELECT id FROM gates').all().map((r) => String(r.id));
+  // ประตู 5 มีที่พักห่าง 552 ม. จึงมีทั้งในและนอกระยะ 500 ม.
+  for (const q of [{ max_distance: '500' }, { gate: String(gateId('ประตู 5')), max_distance: '500', type: 'apartment' }]) {
+    const f = facets(q);
+    for (const g of gates) assert.equal(f.gate[g] ?? 0, count({ ...q, gate: g }), `${JSON.stringify(q)} → gate=${g}`);
+  }
+});
+
+test('ระยะทาง: ค่าผิดรูปแบบหรือ 0 ถือว่าไม่กรอง', () => {
+  assert.equal(parseFilters({ max_distance: 'abc' }).maxDistance, null);
+  assert.equal(parseFilters({ max_distance: '0' }).maxDistance, null);
+  assert.equal(count({ max_distance: 'abc' }), count({}));
+});
+
 test('Facet: นับเฉพาะที่พักที่เผยแพร่แล้ว', () => {
   const before = facets({});
   const target = db.prepare("SELECT p.id, t.code FROM properties p JOIN property_types t ON t.id = p.type_id WHERE p.status = 'published' LIMIT 1").get();

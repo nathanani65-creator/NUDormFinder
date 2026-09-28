@@ -26,6 +26,16 @@
             </div>
             <fieldset><legend>ประเภทที่พัก <span class="rule">(เลือกได้หลายค่า)</span></legend><div id="fType"></div></fieldset>
             <fieldset><legend>ประตู <span class="rule">(ใกล้ประตูใดก็ได้ที่เลือก)</span></legend><div id="fGate"></div></fieldset>
+            <fieldset>
+              <legend>ระยะจากประตู <span class="rule">(ระยะเส้นตรง)</span></legend>
+              <div id="fDistance">
+                <label class="check facet-option"><input type="radio" name="max_distance" value="" checked> <span class="facet-label">ไม่จำกัด</span></label>
+                <label class="check facet-option"><input type="radio" name="max_distance" value="500"> <span class="facet-label">ไม่เกิน 500 ม.</span><span class="facet-count" aria-hidden="true"></span></label>
+                <label class="check facet-option"><input type="radio" name="max_distance" value="1000"> <span class="facet-label">ไม่เกิน 1 กม.</span><span class="facet-count" aria-hidden="true"></span></label>
+                <label class="check facet-option"><input type="radio" name="max_distance" value="2000"> <span class="facet-label">ไม่เกิน 2 กม.</span><span class="facet-count" aria-hidden="true"></span></label>
+              </div>
+              <p class="small muted" style="margin:6px 0 0">วัดจากประตูที่เลือก ถ้ายังไม่เลือกประตู วัดจากประตูที่ใกล้ที่พักที่สุด</p>
+            </fieldset>
             <fieldset><legend>โซน</legend><div id="fZone"></div></fieldset>
             <fieldset><legend>ซอย</legend><div id="fSoi"></div></fieldset>
             <fieldset>
@@ -94,8 +104,10 @@
     function updateFacetCounts(facets) {
       if (!facets) return;
       lastFacets = facets;
-      for (const group of ['type', 'gate', 'zone', 'soi', 'amenity']) {
-        form.querySelectorAll(`input[name=${group}]`).forEach((input) => {
+      for (const group of ['type', 'gate', 'zone', 'soi', 'amenity', 'distance']) {
+        const name = group === 'distance' ? 'max_distance' : group;
+        form.querySelectorAll(`input[name=${name}]`).forEach((input) => {
+          if (input.value === '') return; // "ไม่จำกัด" ไม่มีตัวเลข
           const n = facets[group]?.[input.value] ?? 0;
           const label = input.closest('.facet-option');
           const zero = n === 0 && !input.checked;
@@ -132,6 +144,7 @@
         if (v) params.set(key, v);
       }
       if (fd.get('available')) params.set('available', '1');
+      if (fd.get('max_distance')) params.set('max_distance', fd.get('max_distance'));
       const sort = document.getElementById('sort').value;
       if (sort !== 'distance') params.set('sort', sort);
       return params;
@@ -144,6 +157,8 @@
       }
       for (const key of ['q', 'min_price', 'max_price']) form.elements[key].value = params.get(key) || '';
       form.elements.available.checked = params.get('available') === '1';
+      const dist = form.querySelector(`input[name=max_distance][value="${CSS.escape(params.get('max_distance') || '')}"]`);
+      (dist || form.querySelector('input[name=max_distance][value=""]')).checked = true;
       document.getElementById('sort').value = params.get('sort') || 'distance';
     }
 
@@ -177,6 +192,10 @@
       if (params.get('min_price')) labels.push(['min_price', '', `ราคาตั้งแต่ ${baht(params.get('min_price'))} บาท/เดือน`]);
       if (params.get('max_price')) labels.push(['max_price', '', `ไม่เกิน ${baht(params.get('max_price'))} บาท/เดือน`]);
       if (params.get('available')) labels.push(['available', '', 'ห้องว่าง']);
+      if (params.get('max_distance')) {
+        const from = params.get('gate') ? 'ประตูที่เลือก' : 'ประตู';
+        labels.push(['max_distance', '', `ห่าง${from}ไม่เกิน ${distanceText(Number(params.get('max_distance')))} (เส้นตรง)`]);
+      }
       if (params.get('q')) labels.push(['q', '', `"${params.get('q')}"`]);
       document.getElementById('activeFilters').innerHTML = labels
         .map(([k, v, l]) => `<span class="chip accent">${esc(l)}<button data-k="${k}" data-v="${esc(v)}" aria-label="ลบเงื่อนไข">×</button></span>`)
@@ -189,6 +208,7 @@
       const { k, v } = b.dataset;
       if (['min_price', 'max_price', 'q'].includes(k)) form.elements[k].value = '';
       else if (k === 'available') form.elements.available.checked = false;
+      else if (k === 'max_distance') form.querySelector('input[name=max_distance][value=""]').checked = true;
       else form.querySelector(`input[name=${k}][value="${CSS.escape(v)}"]`).checked = false;
       if (k === 'gate' || k === 'zone') renderSoiOptions();
       runSearch();
@@ -261,7 +281,7 @@
     form.addEventListener('input', (e) => {
       if (e.target.name === 'gate' || e.target.name === 'zone') renderSoiOptions();
       clearTimeout(debounce);
-      debounce = setTimeout(runSearch, e.target.type === 'checkbox' ? 0 : 350);
+      debounce = setTimeout(runSearch, ['checkbox', 'radio'].includes(e.target.type) ? 0 : 350);
     });
     form.addEventListener('submit', (e) => e.preventDefault());
     document.getElementById('sort').addEventListener('change', () => runSearch());
