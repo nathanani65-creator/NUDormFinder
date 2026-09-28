@@ -313,8 +313,12 @@ footer.site-footer a:first-child { margin-left: 0; }
 
 /* ---------- responsive */
 @media (max-width: 1000px) {
-  .results-split { grid-template-columns: 1fr; }
-  .results-split .map { position: static; height: 360px; order: -1; }
+  /* จอแคบ: แสดงทีละมุมมอง (รายการ หรือ แผนที่) ไม่ให้แผนที่บังรายการที่พัก
+     top: auto เพราะ Leaflet บังคับ position: relative ทำให้ top: 70px ของโหมดจอกว้างดันแผนที่ลงมาทับการ์ด */
+  .results-split { grid-template-columns: minmax(0, 1fr); }
+  .results-split .map { display: none; position: relative; top: auto; height: calc(100vh - 230px); min-height: 320px; }
+  .results-split.show-map .map { display: block; }
+  .results-split.show-map .results-list { display: none; }
   .detail { grid-template-columns: 1fr; }
   .contact-box { position: static; }
 }
@@ -644,3 +648,10 @@ body.has-compare-bar.has-mobile-bar { padding-bottom: 160px; }
 .price-preset.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .price-preset.active .facet-count { color: rgba(255,255,255,.85); }
 .price-preset:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ปุ่มสลับรายการ/แผนที่ (แสดงเฉพาะจอแคบ) */
+.view-toggle { display: none; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-bottom: 12px; background: #fff; }
+.view-toggle button { border: 0; background: none; padding: 8px 18px; font: inherit; font-size: .92rem; cursor: pointer; color: var(--ink-2); }
+.view-toggle button + button { border-left: 1px solid var(--line); }
+.view-toggle button.active { background: var(--accent); color: #fff; font-weight: 600; }
+@media (max-width: 1000px) { .view-toggle { display: inline-flex; } }

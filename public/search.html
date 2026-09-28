@@ -62,7 +62,12 @@
           </label>
         </div>
         <div class="active-filters" id="activeFilters"></div>
-        <div class="results-split">
+        <!-- จอแคบ: สลับดูรายการหรือแผนที่ แทนการวางแผนที่ทับรายการ -->
+        <div class="view-toggle" role="group" aria-label="มุมมองผลการค้นหา">
+          <button type="button" data-view="list" class="active" aria-pressed="true">☰ รายการ</button>
+          <button type="button" data-view="map" aria-pressed="false">🗺 แผนที่</button>
+        </div>
+        <div class="results-split" id="resultsSplit">
           <div class="results-list" id="results"></div>
           <div id="map" class="map"></div>
         </div>
@@ -275,6 +280,22 @@
       document.getElementById('sort').value = 'distance';
       renderSoiOptions();
       runSearch();
+    });
+    document.querySelector('.view-toggle').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-view]');
+      if (!b) return;
+      const showMap = b.dataset.view === 'map';
+      document.getElementById('resultsSplit').classList.toggle('show-map', showMap);
+      document.querySelectorAll('.view-toggle [data-view]').forEach((x) => {
+        x.classList.toggle('active', x === b);
+        x.setAttribute('aria-pressed', x === b);
+      });
+      if (showMap) {
+        // แผนที่ที่เพิ่งแสดงต้องคำนวณขนาดใหม่แล้วจัดมุมมองให้เห็นผลลัพธ์ทั้งหมด
+        map.invalidateSize();
+        const pts = lastResults.map((p) => [p.lat, p.lng]);
+        if (pts.length) fitTo(map, L.latLngBounds(pts).pad(0.2), { maxZoom: 17 });
+      }
     });
     document.getElementById('filterToggle').addEventListener('click', () =>
       document.getElementById('filterBox').classList.toggle('collapsed')
