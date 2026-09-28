@@ -127,7 +127,7 @@ function searchProperties(db, filters) {
               z.id AS zone_id, z.name AS zone_name,
               (SELECT MIN(price) FROM room_types WHERE property_id = p.id) AS price_min,
               (SELECT MAX(price) FROM room_types WHERE property_id = p.id) AS price_max,
-              (SELECT url FROM property_images WHERE property_id = p.id ORDER BY sort_order, id LIMIT 1) AS cover
+              (SELECT url FROM property_images WHERE property_id = p.id ORDER BY room_type_id IS NOT NULL, sort_order, id LIMIT 1) AS cover
        FROM properties p
        JOIN property_types t ON t.id = p.type_id
        LEFT JOIN sois s ON s.id = p.soi_id
@@ -150,7 +150,7 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
     .all(...ids);
   const amenityRows = db
     .prepare(
-      `SELECT pa.property_id, a.code, a.name FROM property_amenities pa
+      `SELECT pa.property_id, a.code, a.name, a.scope FROM property_amenities pa
        JOIN amenities a ON a.id = pa.amenity_id
        WHERE pa.property_id IN (${placeholders(ids)}) ORDER BY a.id`
     )
@@ -164,7 +164,7 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
   const amenityMap = new Map();
   for (const a of amenityRows) {
     if (!amenityMap.has(a.property_id)) amenityMap.set(a.property_id, []);
-    amenityMap.get(a.property_id).push({ code: a.code, name: a.name });
+    amenityMap.get(a.property_id).push({ code: a.code, name: a.name, scope: a.scope });
   }
 
   // ระยะที่ใช้เรียง: ถ้าผู้ใช้เลือกประตู ใช้ระยะถึงประตูที่เลือกซึ่งใกล้ที่สุด ไม่เช่นนั้นใช้ประตูที่เกี่ยวข้องที่ใกล้ที่สุด

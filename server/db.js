@@ -138,6 +138,30 @@ CREATE TABLE IF NOT EXISTS property_images (
   sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
+-- ข้อกำหนดของหอพัก แยกตามหัวข้อ เช่น สัตว์เลี้ยง เสียง เวลาเข้าออกอาคาร
+CREATE TABLE IF NOT EXISTS property_rules (
+  id          INTEGER PRIMARY KEY,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  topic       TEXT NOT NULL,
+  detail      TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
+-- สถานที่ใกล้เคียงที่ตรวจสอบแล้ว (ห้ามสร้างชื่อร้านหรือระยะทางขึ้นเอง)
+CREATE TABLE IF NOT EXISTS nearby_places (
+  id            INTEGER PRIMARY KEY,
+  property_id   INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  category      TEXT NOT NULL,
+  distance_m    INTEGER,           -- ระยะที่วัดได้จริง (ถ้ามี)
+  distance_type TEXT,              -- เส้นตรง / เดิน / ขับรถ
+  lat           REAL,
+  lng           REAL,
+  source        TEXT,
+  checked_at    TEXT,
+  sort_order    INTEGER NOT NULL DEFAULT 0
+);
+
 -- คำขอแก้ไขข้อมูลที่พักที่เผยแพร่แล้ว รอผู้ดูแลอนุมัติ
 CREATE TABLE IF NOT EXISTS edit_requests (
   id           INTEGER PRIMARY KEY,
@@ -182,7 +206,44 @@ const MIGRATIONS = {
     color: 'TEXT',        // สีป้ายประตู: amber, teal, violet, blue, rose
     sort_order: 'INTEGER NOT NULL DEFAULT 0',
   },
+  properties: {
+    contact_website: 'TEXT',
+  },
+  room_types: {
+    features: 'TEXT',     // สิ่งของ/อุปกรณ์ภายในห้องประเภทนี้ บรรทัดละรายการ
+  },
+  property_images: {
+    category: 'TEXT',     // ด้านหน้าอาคาร, รอบอาคาร, ทางเข้า, พื้นที่ส่วนกลาง, อื่น ๆ (ภาพอาคาร)
+    caption: 'TEXT',
+    room_type_id: 'INTEGER REFERENCES room_types(id) ON DELETE CASCADE', // มีค่า = ภาพภายในห้องประเภทนั้น
+  },
+  amenities: {
+    scope: "TEXT NOT NULL DEFAULT 'building'", // building = ของหอพัก, room = ภายในห้อง, rule = เงื่อนไขผู้พัก
+  },
 };
+
+// รายการสิ่งอำนวยความสะดวกตั้งต้น แยกของหอพักกับของภายในห้องให้ชัด
+const AMENITY_CATALOG = [
+  ['aircon', 'เครื่องปรับอากาศ', 'room'],
+  ['fan', 'พัดลม', 'room'],
+  ['water_heater', 'เครื่องทำน้ำอุ่น', 'room'],
+  ['furnished', 'เฟอร์นิเจอร์', 'room'],
+  ['fridge', 'ตู้เย็น', 'room'],
+  ['wifi', 'อินเทอร์เน็ต Wi-Fi', 'building'],
+  ['parking_motorbike', 'ที่จอดรถจักรยานยนต์', 'building'],
+  ['parking_car', 'ที่จอดรถยนต์', 'building'],
+  ['covered_parking', 'โรงจอดรถ (มีหลังคา)', 'building'],
+  ['water_dispenser', 'ตู้กดน้ำดื่ม', 'building'],
+  ['laundry', 'เครื่องซักผ้าหยอดเหรียญ', 'building'],
+  ['keycard', 'ระบบคีย์การ์ด', 'building'],
+  ['cctv', 'กล้องวงจรปิด', 'building'],
+  ['security_guard', 'รปภ.', 'building'],
+  ['elevator', 'ลิฟต์', 'building'],
+  ['common_area', 'พื้นที่ส่วนกลาง', 'building'],
+  ['pets', 'เลี้ยงสัตว์ได้', 'rule'],
+  ['women_only', 'หญิงล้วน', 'rule'],
+  ['men_only', 'ชายล้วน', 'rule'],
+];
 
 function migrate(db) {
   for (const [table, cols] of Object.entries(MIGRATIONS)) {
@@ -190,6 +251,19 @@ function migrate(db) {
     for (const [col, type] of Object.entries(cols)) {
       if (!existing.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
     }
+  }
+  // ย้ายข้อมูลครั้งเดียวตามเลขเวอร์ชัน เพื่อไม่ให้ทับการแก้ไขของผู้ดูแลในภายหลัง
+  const version = db.prepare('PRAGMA user_version').get().user_version;
+  if (version < 2) {
+    tx(db, () => {
+      const insert = db.prepare('INSERT OR IGNORE INTO amenities (code, name, scope) VALUES (?, ?, ?)');
+      const setScope = db.prepare('UPDATE amenities SET scope = ? WHERE code = ?');
+      for (const [code, name, scope] of AMENITY_CATALOG) {
+        insert.run(code, name, scope);
+        setScope.run(scope, code);
+      }
+      db.exec('PRAGMA user_version = 2');
+    });
   }
 }
 
@@ -213,4 +287,4 @@ function tx(db, fn) {
   }
 }
 
-module.exports = { open, tx, DB_PATH };
+module.exports = { open, tx, DB_PATH, AMENITY_CATALOG };

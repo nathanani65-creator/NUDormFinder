@@ -349,7 +349,15 @@ async function tabTypes(host) {
   host.innerHTML = '<div id="t1"></div><div id="t2" style="margin-top:30px"></div>';
   const fields = [{ key: 'code', label: 'รหัส (ภาษาอังกฤษ ใช้ใน URL)' }, { key: 'name', label: 'ชื่อที่แสดง' }];
   refEditor(host.querySelector('#t1'), { endpoint: 'property_types', title: 'ประเภทที่พัก', rows: meta.types, fields });
-  refEditor(host.querySelector('#t2'), { endpoint: 'amenities', title: 'สิ่งอำนวยความสะดวก', rows: meta.amenities, fields });
+  const scopes = { building: 'ของหอพัก (แสดงในหมวดสิ่งอำนวยความสะดวก)', room: 'ภายในห้อง (ใช้กรองการค้นหา)', rule: 'เงื่อนไขผู้พัก' };
+  refEditor(host.querySelector('#t2'), {
+    endpoint: 'amenities', title: 'สิ่งอำนวยความสะดวก', rows: meta.amenities,
+    fields: [...fields, {
+      key: 'scope', label: 'หมวด',
+      render: (r) => esc(scopes[r.scope] || r.scope),
+      input: (r) => `<select name="scope">${Object.entries(scopes).map(([k, l]) => `<option value="${k}" ${(r.scope || 'building') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`,
+    }],
+  });
 }
 
 async function tabUsage(host) {

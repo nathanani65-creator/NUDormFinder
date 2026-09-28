@@ -368,3 +368,179 @@ footer.site-footer a:first-child { margin-left: 0; }
 .zc-sois { font-size: .85rem; color: var(--ink-2); margin-top: auto; }
 .zc-sois b { color: var(--accent-dark); }
 .zc-link { font-size: .85rem; color: var(--accent); font-weight: 600; margin-top: 10px; }
+
+/* ================================================================ หน้ารายละเอียดที่พัก */
+.pd {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px 28px;
+  grid-template-areas: "head head" "gallery side" "main side";
+}
+.pd-head { grid-area: head; }
+.pd-head h1 { margin-bottom: 6px; }
+.pd-gallery { grid-area: gallery; min-width: 0; }
+.pd-head, .side-part { min-width: 0; }
+/* แถบข้าง: ราคา + ติดต่อ → แผนที่ → ระยะถึงประตู → สถานที่ใกล้เคียง ในการ์ดเดียว */
+.pd-side { grid-area: side; align-self: start; background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+.side-part { padding: 18px; }
+.side-part + .side-part { border-top: 1px solid var(--line); }
+.side-contact { grid-area: contact; }
+.side-location { grid-area: loc; }
+.price-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.side-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0 6px; }
+.side-actions .btn { padding: 10px 8px; font-weight: 600; }
+.side-verify { margin-top: 12px; }
+.side-map { height: 200px; margin: -18px -18px 12px; border-radius: 0; border: 0; border-bottom: 1px solid var(--line); }
+.side-address { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; font-size: .92rem; margin-bottom: 10px; }
+.side-address a { white-space: nowrap; font-weight: 600; }
+.side-title { font-size: 1rem; margin: 20px 0 8px; }
+.gate-list { list-style: none; padding: 0; margin: 0; }
+.gate-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
+.gate-list li.nearest b { color: var(--accent-dark); }
+.link-btn { background: none; border: 0; padding: 10px 0 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }
+.pd-main { grid-area: main; min-width: 0; }
+.pd-section { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 18px; box-shadow: var(--shadow); }
+.pd-section > h2 { font-size: 1.2rem; margin-bottom: 14px; }
+.pd-subhead { font-size: .95rem; margin: 0 0 8px; color: var(--ink-2); }
+.pd-pending { margin: 0; color: var(--muted); font-style: italic; }
+.pd-pending::before { content: "\23F3  "; font-style: normal; }
+
+/* สไลด์รูป */
+.carousel { position: relative; border-radius: var(--radius); overflow: hidden; background: #e7eeec; outline-offset: 3px; }
+.carousel-lg { aspect-ratio: 16 / 9; }
+.carousel-md { aspect-ratio: 4 / 3; }
+.carousel-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.carousel.is-empty { display: grid; place-items: center; color: var(--muted); background: linear-gradient(135deg, #d4ebe6, #eef3f2); text-align: center; padding: 12px; }
+.carousel-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border-radius: 50%; border: 0;
+  background: rgba(255,255,255,.9); color: var(--ink); font-size: 1.6rem; line-height: 1; cursor: pointer; box-shadow: var(--shadow);
+}
+.carousel-nav.prev { left: 10px; } .carousel-nav.next { right: 10px; }
+.carousel-nav:focus-visible { outline: 3px solid var(--accent); }
+.carousel-count { position: absolute; right: 10px; bottom: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: .8rem; padding: 2px 9px; border-radius: 999px; }
+.carousel-caption { position: absolute; left: 10px; bottom: 10px; max-width: 70%; background: rgba(0,0,0,.6); color: #fff; font-size: .82rem; padding: 3px 10px; border-radius: 8px; }
+.thumbs { display: flex; gap: 6px; overflow-x: auto; margin-top: 8px; padding-bottom: 2px; }
+.thumbs button { flex: 0 0 84px; height: 60px; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; cursor: pointer; background: none; opacity: .75; }
+.thumbs button.active { border-color: var(--accent); opacity: 1; }
+.thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.all-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.all-images figure { margin: 0; }
+.all-images img { width: 100%; border-radius: 8px; display: block; }
+.all-images figcaption { font-size: .82rem; color: var(--muted); margin-top: 4px; }
+
+/* ห้องพัก */
+.room-jump { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.room-jump a { text-decoration: none; }
+.room-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; padding: 16px 0; border-top: 1px solid var(--line); scroll-margin-top: 80px; }
+.room-card.single { border-top: 0; padding-top: 0; }
+.room-jump + .room-card { border-top: 0; }
+.room-info h3 { margin: 0 0 4px; font-size: 1.08rem; }
+.room-price { font-size: 1.45rem; font-weight: 700; color: var(--price); }
+.room-price span { font-size: .9rem; font-weight: 400; color: var(--muted); }
+.feature-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+.feature-list li::before, .facility-grid li::before { content: "\2713"; color: var(--accent); font-weight: 700; margin-right: 6px; }
+
+/* สิ่งอำนวยความสะดวก / เงื่อนไข */
+.facility-grid { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.facility-grid li { background: var(--accent-soft); border-radius: 10px; padding: 9px 12px; font-size: .92rem; }
+.rule-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.rule-group { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.rule-group h3 { font-size: .95rem; margin: 0 0 6px; color: var(--accent-dark); }
+.rule-group ul { margin: 0; padding-left: 18px; }
+.rule-group li { font-size: .92rem; margin-bottom: 3px; }
+
+/* ทำเล */
+.nu-distance { background: var(--accent-soft); border-radius: 12px; padding: 12px 16px; }
+.nu-distance b { display: block; font-size: 1.15rem; color: var(--accent-dark); }
+.gate-distances { margin-top: 8px; font-size: .9rem; }
+.gate-distances summary { cursor: pointer; color: var(--accent); }
+.nearby-list { list-style: none; padding: 0; margin: 0; }
+.nearby-list li { display: flex; align-items: flex-start; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: .92rem; }
+.nearby-list li.hidden { display: none; }
+.nb-icon { flex: none; width: 22px; text-align: center; }
+.nb-name { flex: 1; min-width: 0; }
+.nb-name .small { display: block; }
+.nb-dist { text-align: right; white-space: nowrap; font-weight: 600; }
+.nb-dist span { display: block; font-weight: 400; }
+.nearby-list li.has-pin { cursor: pointer; }
+.nearby-list li.has-pin:hover { background: var(--accent-soft); }
+.place-pin { width: 14px; height: 14px; border-radius: 50%; background: #3d7be0; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+
+/* กล่องราคาและติดต่อ */
+.box-price { font-size: 1.7rem; font-weight: 700; color: var(--price); line-height: 1.2; }
+.box-price span { font-size: .9rem; font-weight: 400; color: var(--muted); }
+.contact-box .call-btn { margin: 14px 0 6px; }
+.contact-rows { margin-top: 8px; }
+.contact-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
+.contact-row > span:last-child { text-align: right; word-break: break-word; }
+.contact-box hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+.mobile-bar { display: none; }
+
+@media (max-width: 900px) {
+  /* มือถือ: ราคา/ติดต่ออยู่ต่อจากรูป ส่วนแผนที่และสถานที่ใกล้เคียงอยู่หลังรายละเอียดห้อง */
+  .pd { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "gallery" "contact" "main" "loc"; }
+  .pd-side { display: contents; }
+  .side-part { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+  .side-part + .side-part { border-top: 1px solid var(--line); }
+  .side-location { overflow: hidden; }
+  .room-card { grid-template-columns: 1fr; }
+  .mobile-bar {
+    display: flex; align-items: center; gap: 8px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1500;
+    background: #fff; border-top: 1px solid var(--line); padding: 10px 16px; box-shadow: 0 -4px 14px rgba(16,40,36,.1);
+  }
+  .mobile-bar > div { flex: 1; min-width: 0; }
+  body.has-mobile-bar { padding-bottom: 70px; }
+}
+@media (max-width: 520px) { .feature-list { grid-template-columns: 1fr; } }
+
+/* ================================================================ ฟอร์มข้อมูลที่พัก (ส่วนใหม่) */
+.form-subhead { font-size: .95rem; margin: 14px 0 8px; color: var(--accent-dark); }
+.room-block { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; background: #fbfdfc; }
+.room-block-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.img-edit { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.img-edit img { width: 110px; height: 80px; object-fit: cover; border-radius: 8px; flex: none; }
+.img-edit-fields { flex: 1; display: grid; gap: 6px; }
+.img-edit-actions { display: flex; gap: 6px; align-items: center; }
+.rule-row { display: grid; grid-template-columns: 180px 1fr auto; gap: 8px; margin-bottom: 8px; }
+.nearby-row { display: grid; grid-template-columns: 2fr 1.2fr .8fr 1fr 1fr 1fr 1.5fr 1.1fr auto; gap: 6px; margin-bottom: 8px; }
+@media (max-width: 900px) {
+  .rule-row { grid-template-columns: 1fr; }
+  .nearby-row { grid-template-columns: 1fr 1fr; padding-bottom: 8px; border-bottom: 1px dashed var(--line); }
+}
+
+/* ================================================================ แกลเลอรีรูปอาคารแบบโมเสก */
+.mosaic { position: relative; display: grid; gap: 6px; height: 420px; border-radius: var(--radius); overflow: hidden; }
+.mosaic.n1 { grid-template-columns: 1fr; }
+.mosaic.n2 { grid-template-columns: 1fr 1fr; }
+.mosaic.n3 { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
+.mosaic.n4 { grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.mosaic.n5 { grid-template-columns: 2fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.mosaic.n3 .mosaic-item:first-child, .mosaic.n4 .mosaic-item:first-child, .mosaic.n5 .mosaic-item:first-child { grid-row: span 2; }
+.mosaic.n4 .mosaic-item:last-of-type { grid-column: span 2; }
+.mosaic-item { position: relative; padding: 0; border: 0; background: #e7eeec; cursor: zoom-in; overflow: hidden; min-height: 0; }
+.mosaic-item img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
+.mosaic-item:hover img { transform: scale(1.03); }
+.mosaic-item:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.mosaic-tag { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: .75rem; padding: 2px 8px; border-radius: 6px; }
+.mosaic-more { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.45); color: #fff; font-size: 1.3rem; font-weight: 700; }
+.mosaic-all { position: absolute; right: 12px; bottom: 12px; background: #fff; box-shadow: var(--shadow); }
+.gallery-mobile { display: none; }
+.all-img-btn { padding: 0; border: 0; background: none; cursor: zoom-in; display: block; width: 100%; }
+
+/* ตัวดูรูปเต็มจอ */
+.viewer { position: fixed; inset: 0; z-index: 3000; background: rgba(10, 16, 15, .92); display: flex; align-items: center; justify-content: center; gap: 10px; padding: 16px; }
+.viewer figure { margin: 0; max-width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; align-items: center; }
+.viewer img { max-width: 100%; max-height: calc(100vh - 90px); object-fit: contain; border-radius: 8px; }
+.viewer figcaption { color: #e6ecea; font-size: .9rem; margin-top: 10px; text-align: center; }
+.viewer-nav, .viewer-close { border: 0; background: rgba(255,255,255,.14); color: #fff; cursor: pointer; border-radius: 50%; }
+.viewer-nav { width: 48px; height: 48px; font-size: 2rem; line-height: 1; flex: none; }
+.viewer-close { position: absolute; top: 14px; right: 14px; width: 42px; height: 42px; font-size: 1.1rem; }
+.viewer-nav:hover, .viewer-close:hover { background: rgba(255,255,255,.28); }
+.viewer-nav[hidden] { display: none; }
+
+@media (max-width: 700px) {
+  .mosaic { display: none; }
+  .gallery-mobile { display: block; }
+  .viewer { padding: 8px; }
+  .viewer-nav { position: absolute; bottom: 20px; }
+  .viewer-nav.prev { left: 20px; } .viewer-nav.next { right: 20px; }
+}

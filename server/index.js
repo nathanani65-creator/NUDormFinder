@@ -47,6 +47,12 @@ function createApp(db) {
       })),
       types: db.prepare('SELECT * FROM property_types ORDER BY id').all(),
       amenities: db.prepare('SELECT * FROM amenities ORDER BY id').all(),
+      options: {
+        image_categories: props.IMAGE_CATEGORIES,
+        rule_topics: props.RULE_TOPICS,
+        nearby_categories: props.NEARBY_CATEGORIES,
+        distance_types: props.DISTANCE_TYPES,
+      },
     });
   });
 
@@ -65,7 +71,7 @@ function createApp(db) {
                 z.id AS zone_id, z.name AS zone_name,
                 (SELECT MIN(price) FROM room_types WHERE property_id = p.id) AS price_min,
                 (SELECT MAX(price) FROM room_types WHERE property_id = p.id) AS price_max,
-                (SELECT url FROM property_images WHERE property_id = p.id ORDER BY sort_order, id LIMIT 1) AS cover
+                (SELECT url FROM property_images WHERE property_id = p.id ORDER BY room_type_id IS NOT NULL, sort_order, id LIMIT 1) AS cover
          FROM properties p JOIN property_types t ON t.id = p.type_id
          LEFT JOIN sois s ON s.id = p.soi_id LEFT JOIN zones z ON z.id = s.zone_id
          WHERE p.status = 'published' ORDER BY p.verified_at DESC LIMIT 6`
@@ -351,7 +357,7 @@ function createApp(db) {
     zones: { cols: ['name', 'tagline', 'description', 'key_sois', 'travel_tips', 'color', 'sort_order'], required: ['name'], links: { table: 'zone_gates', key: 'zone_id' } },
     sois: { cols: ['name', 'zone_id', 'description'], required: ['name'], links: { table: 'soi_gates', key: 'soi_id' } },
     property_types: { cols: ['code', 'name'], required: ['code', 'name'] },
-    amenities: { cols: ['code', 'name'], required: ['code', 'name'] },
+    amenities: { cols: ['code', 'name', 'scope'], required: ['code', 'name', 'scope'] },
   };
 
   function refValues(def, body) {

@@ -65,22 +65,6 @@ const TYPES = [
   ['house', 'บ้านเช่า'],
 ];
 
-const AMENITIES = [
-  ['aircon', 'เครื่องปรับอากาศ'],
-  ['fan', 'พัดลม'],
-  ['wifi', 'อินเทอร์เน็ต Wi-Fi'],
-  ['parking_motorbike', 'ที่จอดรถจักรยานยนต์'],
-  ['parking_car', 'ที่จอดรถยนต์'],
-  ['water_heater', 'เครื่องทำน้ำอุ่น'],
-  ['furnished', 'เฟอร์นิเจอร์'],
-  ['fridge', 'ตู้เย็น'],
-  ['cctv', 'กล้องวงจรปิด'],
-  ['keycard', 'คีย์การ์ด'],
-  ['laundry', 'เครื่องซักผ้าหยอดเหรียญ'],
-  ['pets', 'เลี้ยงสัตว์ได้'],
-  ['women_only', 'หญิงล้วน'],
-  ['men_only', 'ชายล้วน'],
-];
 
 // [ชื่อ, ประเภท, ซอย, ประตูที่เกี่ยวข้อง, dLat, dLng จากประตูแรก, ห้อง[[ชื่อ, ราคา, ขนาด]], สิ่งอำนวยความสะดวก]
 const SAMPLES = [
@@ -129,7 +113,7 @@ function seed(db) {
       for (const g of s.gates) db.prepare('INSERT INTO soi_gates (soi_id, gate_id) VALUES (?, ?)').run(soiId[s.key], gateId[g]);
     }
     for (const [code, name] of TYPES) db.prepare('INSERT INTO property_types (code, name) VALUES (?, ?)').run(code, name);
-    for (const [code, name] of AMENITIES) db.prepare('INSERT INTO amenities (code, name) VALUES (?, ?)').run(code, name);
+    // สิ่งอำนวยความสะดวกถูกสร้างจาก AMENITY_CATALOG ใน db.js ตอนเปิดฐานข้อมูลแล้ว
 
     const adminId = db.prepare('SELECT id FROM users WHERE email = ?').get(adminEmail).id;
     const typeId = Object.fromEntries(db.prepare('SELECT code, id FROM property_types').all().map((t) => [t.code, t.id]));

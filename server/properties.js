@@ -8,11 +8,35 @@ const DUPLICATE_RADIUS_M = 40;
 
 const TEXT_FIELDS = [
   'description', 'water_rate', 'electric_rate', 'other_fees', 'lease_terms',
-  'contact_name', 'contact_phone', 'contact_line', 'contact_facebook', 'data_source',
+  'contact_name', 'contact_phone', 'contact_line', 'contact_facebook', 'contact_website', 'data_source',
 ];
+
+const IMAGE_CATEGORIES = ['ด้านหน้าอาคาร', 'รอบอาคาร', 'ทางเข้า', 'พื้นที่ส่วนกลาง', 'ที่จอดรถ', 'อื่น ๆ'];
+const RULE_TOPICS = ['สัตว์เลี้ยง', 'เสียงและความสงบ', 'เวลาเข้าออกอาคาร', 'ผู้มาเยี่ยม', 'การสูบบุหรี่', 'การทำอาหาร', 'สัญญาเช่า', 'อื่น ๆ'];
+const NEARBY_CATEGORIES = ['ร้านอาหาร', 'ร้านสะดวกซื้อ', 'ร้านซักรีด', 'ตลาด', 'ร้านถ่ายเอกสาร', 'ร้านค้า', 'สถานพยาบาล', 'จุดรับส่ง/ป้ายรถ', 'อื่น ๆ'];
+const DISTANCE_TYPES = ['เส้นตรง', 'เดิน', 'ขับรถ'];
 
 function str(v, max = 2000) {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
+}
+
+function optNumber(v) {
+  if (v === '' || v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** รูปภาพจากฟอร์ม: รับทั้ง string (รูปแบบเดิม) และ { url, category, caption } */
+function cleanImages(list, { withCategory }) {
+  return (Array.isArray(list) ? list : [])
+    .map((item) => (typeof item === 'string' ? { url: item } : item || {}))
+    .map((item) => ({
+      url: str(item.url, 500),
+      category: withCategory && IMAGE_CATEGORIES.includes(item.category) ? item.category : null,
+      caption: str(item.caption, 200),
+    }))
+    .filter((img) => img.url.startsWith('/uploads/') || /^https?:\/\//.test(img.url))
+    .slice(0, 20);
 }
 
 /**
@@ -55,8 +79,11 @@ function validatePayload(db, body = {}) {
     errors.push('เงินประกันต้องเป็นจำนวนเต็มไม่ติดลบ');
   }
 
-  if (!data.contact_phone && !data.contact_line && !data.contact_facebook) {
+  if (!data.contact_phone && !data.contact_line && !data.contact_facebook && !data.contact_website) {
     errors.push('กรุณาระบุช่องทางติดต่ออย่างน้อยหนึ่งช่องทาง');
+  }
+  if (data.contact_website && !/^https?:\/\/\S+$/.test(data.contact_website)) {
+    errors.push('เว็บไซต์ต้องเป็นลิงก์เต็มที่ขึ้นต้นด้วย https://');
   }
 
   const validGates = new Set(db.prepare('SELECT id FROM gates').all().map((g) => g.id));
@@ -73,6 +100,9 @@ function validatePayload(db, body = {}) {
       size_sqm: r.size_sqm === '' || r.size_sqm == null ? null : Number(r.size_sqm),
       available: r.available === false || r.available === 0 || r.available === '0' ? 0 : 1,
       note: str(r.note, 300),
+      // แต่ละประเภทห้องเก็บรูปและรายละเอียดของตัวเอง ไม่ปะปนกับห้องราคาอื่น
+      features: str(r.features, 1000),
+      images: cleanImages(r.images, { withCategory: false }),
     }))
     .filter((r) => r.name || Number.isFinite(r.price));
   if (!data.rooms.length) errors.push('กรุณาเพิ่มประเภทห้องอย่างน้อยหนึ่งประเภท');
@@ -82,10 +112,38 @@ function validatePayload(db, body = {}) {
     if (r.size_sqm != null && !(r.size_sqm > 0)) r.size_sqm = null;
   });
 
-  data.images = (Array.isArray(body.images) ? body.images : [])
-    .map((u) => str(u, 500))
-    .filter((u) => u.startsWith('/uploads/') || /^https?:\/\//.test(u))
-    .slice(0, 12);
+  // ภาพอาคาร (ไม่รวมภาพภายในห้อง)
+  data.images = cleanImages(body.images, { withCategory: true });
+
+  data.rules = (Array.isArray(body.rules) ? body.rules : [])
+    .map((r) => ({ topic: RULE_TOPICS.includes(r?.topic) ? r.topic : 'อื่น ๆ', detail: str(r?.detail, 500) }))
+    .filter((r) => r.detail)
+    .slice(0, 30);
+
+  data.nearby = (Array.isArray(body.nearby) ? body.nearby : [])
+    .map((n) => ({
+      name: str(n?.name, 120),
+      category: NEARBY_CATEGORIES.includes(n?.category) ? n.category : 'อื่น ๆ',
+      distance_m: optNumber(n?.distance_m),
+      distance_type: DISTANCE_TYPES.includes(n?.distance_type) ? n.distance_type : null,
+      lat: optNumber(n?.lat),
+      lng: optNumber(n?.lng),
+      source: str(n?.source, 300),
+      checked_at: str(n?.checked_at, 10),
+    }))
+    .filter((n) => n.name)
+    .slice(0, 30);
+  for (const n of data.nearby) {
+    const label = `สถานที่ใกล้เคียง "${n.name}"`;
+    const hasCoords = Number.isFinite(n.lat) && Number.isFinite(n.lng);
+    if (Number.isNaN(n.distance_m) || (n.distance_m != null && n.distance_m < 0)) errors.push(`${label}: ระยะทางไม่ถูกต้อง`);
+    if (Number.isNaN(n.lat) || Number.isNaN(n.lng)) errors.push(`${label}: พิกัดไม่ถูกต้อง`);
+    if (n.distance_m == null && !hasCoords) errors.push(`${label}: ต้องมีระยะทางที่วัดได้หรือพิกัดของสถานที่`);
+    if (n.distance_m != null && !n.distance_type) errors.push(`${label}: กรุณาระบุประเภทระยะทาง (เส้นตรง/เดิน/ขับรถ)`);
+    if (!n.source) errors.push(`${label}: กรุณาระบุแหล่งที่ตรวจสอบ`);
+    if (Number.isFinite(n.distance_m)) n.distance_m = Math.round(n.distance_m);
+    if (!hasCoords) { n.lat = null; n.lng = null; }
+  }
 
   return { data, errors };
 }
@@ -95,6 +153,8 @@ function writeChildren(db, propertyId, data) {
   db.prepare('DELETE FROM property_amenities WHERE property_id = ?').run(propertyId);
   db.prepare('DELETE FROM room_types WHERE property_id = ?').run(propertyId);
   db.prepare('DELETE FROM property_images WHERE property_id = ?').run(propertyId);
+  db.prepare('DELETE FROM property_rules WHERE property_id = ?').run(propertyId);
+  db.prepare('DELETE FROM nearby_places WHERE property_id = ?').run(propertyId);
 
   const g = db.prepare('INSERT INTO property_gates (property_id, gate_id) VALUES (?, ?)');
   for (const id of data.gate_ids) g.run(propertyId, id);
@@ -104,13 +164,31 @@ function writeChildren(db, propertyId, data) {
   );
   for (const code of data.amenity_codes) a.run(propertyId, code);
 
-  const r = db.prepare(
-    'INSERT INTO room_types (property_id, name, price, size_sqm, available, note) VALUES (?, ?, ?, ?, ?, ?)'
+  const img = db.prepare(
+    'INSERT INTO property_images (property_id, room_type_id, url, category, caption, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
   );
-  for (const room of data.rooms) r.run(propertyId, room.name, room.price, room.size_sqm, room.available, room.note);
+  const r = db.prepare(
+    'INSERT INTO room_types (property_id, name, price, size_sqm, available, note, features) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  );
+  for (const room of data.rooms) {
+    const roomId = Number(
+      r.run(propertyId, room.name, room.price, room.size_sqm, room.available, room.note, room.features || null).lastInsertRowid
+    );
+    (room.images || []).forEach((im, i) => img.run(propertyId, roomId, im.url, null, im.caption || null, i));
+  }
 
-  const img = db.prepare('INSERT INTO property_images (property_id, url, sort_order) VALUES (?, ?, ?)');
-  data.images.forEach((url, i) => img.run(propertyId, url, i));
+  (data.images || []).forEach((im, i) => img.run(propertyId, null, im.url, im.category || null, im.caption || null, i));
+
+  const rule = db.prepare('INSERT INTO property_rules (property_id, topic, detail, sort_order) VALUES (?, ?, ?, ?)');
+  (data.rules || []).forEach((x, i) => rule.run(propertyId, x.topic, x.detail, i));
+
+  const near = db.prepare(
+    `INSERT INTO nearby_places (property_id, name, category, distance_m, distance_type, lat, lng, source, checked_at, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  (data.nearby || []).forEach((n, i) =>
+    near.run(propertyId, n.name, n.category, n.distance_m, n.distance_type, n.lat, n.lng, n.source || null, n.checked_at || null, i)
+  );
 }
 
 const COLUMNS = ['name', 'type_id', 'soi_id', 'address', 'lat', 'lng', 'deposit', ...TEXT_FIELDS];
@@ -164,20 +242,44 @@ function getProperty(db, id) {
   if (!p) return null;
 
   const [decorated] = decorate(db, [{ ...p }]);
+  const allImages = db
+    .prepare('SELECT url, category, caption, room_type_id FROM property_images WHERE property_id = ? ORDER BY sort_order, id')
+    .all(id);
+  const rooms = db
+    .prepare('SELECT id, name, price, size_sqm, available, note, features FROM room_types WHERE property_id = ? ORDER BY price, id')
+    .all(id)
+    .map((room) => ({
+      ...room,
+      features_list: String(room.features || '').split(/\r?\n|,/).map((x) => x.trim()).filter(Boolean),
+      images: allImages.filter((im) => im.room_type_id === room.id).map(({ url, caption }) => ({ url, caption })),
+    }));
+
+  // ระยะสถานที่ใกล้เคียง: ใช้ค่าที่วัดได้จริงก่อน ถ้าไม่มีจึงคำนวณระยะเส้นตรงจากพิกัด
+  const nearby = db
+    .prepare('SELECT name, category, distance_m, distance_type, lat, lng, source, checked_at FROM nearby_places WHERE property_id = ? ORDER BY sort_order, id')
+    .all(id)
+    .map((n) => {
+      const computed = n.lat != null && n.lng != null ? Math.round(haversineMeters(p.lat, p.lng, n.lat, n.lng)) : null;
+      return {
+        ...n,
+        display_distance_m: n.distance_m ?? computed,
+        display_distance_type: n.distance_m != null ? n.distance_type : computed != null ? 'เส้นตรง' : null,
+      };
+    })
+    .sort((a, b) => (a.display_distance_m ?? Infinity) - (b.display_distance_m ?? Infinity)); // ใกล้ที่สุดก่อน
+
   return {
     ...p,
     gates: decorated.gates,
     distances: decorated.distances,
+    nearest_gate: decorated.nearest_gate,
     amenities: decorated.amenities,
     gate_ids: decorated.gates.map((g) => g.id),
     amenity_codes: decorated.amenities.map((a) => a.code),
-    rooms: db
-      .prepare('SELECT id, name, price, size_sqm, available, note FROM room_types WHERE property_id = ? ORDER BY price, id')
-      .all(id),
-    images: db
-      .prepare('SELECT url FROM property_images WHERE property_id = ? ORDER BY sort_order, id')
-      .all(id)
-      .map((r) => r.url),
+    rooms,
+    images: allImages.filter((im) => im.room_type_id == null).map(({ url, category, caption }) => ({ url, category, caption })),
+    rules: db.prepare('SELECT topic, detail FROM property_rules WHERE property_id = ? ORDER BY sort_order, id').all(id),
+    nearby,
   };
 }
 
@@ -190,8 +292,10 @@ function reviewChecklist(db, p) {
     { label: 'ที่อยู่', ok: !!p.address },
     { label: 'พิกัด', ok: Number.isFinite(p.lat) && Number.isFinite(p.lng) },
     { label: 'ซอย', ok: !!p.soi_id },
-    { label: 'รูปภาพ', ok: p.images.length > 0 },
-    { label: 'ช่องทางติดต่อ', ok: !!(p.contact_phone || p.contact_line || p.contact_facebook) },
+    { label: 'รูปภาพอาคาร', ok: p.images.length > 0 },
+    { label: 'รูปภายในห้องครบทุกประเภท', ok: p.rooms.length > 0 && p.rooms.every((r) => r.images.length > 0) },
+    { label: 'รายละเอียดภายในห้องครบทุกประเภท', ok: p.rooms.length > 0 && p.rooms.every((r) => r.features_list.length > 0) },
+    { label: 'ช่องทางติดต่อ', ok: !!(p.contact_phone || p.contact_line || p.contact_facebook || p.contact_website) },
     { label: 'แหล่งข้อมูล', ok: !!p.data_source },
   ];
 
@@ -206,4 +310,7 @@ function reviewChecklist(db, p) {
   return { checks, duplicates };
 }
 
-module.exports = { validatePayload, createProperty, updateProperty, getProperty, reviewChecklist };
+module.exports = {
+  validatePayload, createProperty, updateProperty, getProperty, reviewChecklist,
+  IMAGE_CATEGORIES, RULE_TOPICS, NEARBY_CATEGORIES, DISTANCE_TYPES,
+};
