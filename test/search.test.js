@@ -85,3 +85,84 @@ test('haversine: 0.001° ละติจูด ≈ 111 เมตร', () => {
   const m = haversineMeters(16.75, 100.19, 16.751, 100.19);
   assert.ok(Math.abs(m - 111) < 1);
 });
+
+// ---------------------------------------------------------------- Facet Counts
+const { computeFacets } = require('../server/search');
+const facets = (q) => computeFacets(db, parseFilters(q));
+const count = (q) => search(q).length;
+const GROUP_PARAM = { type: 'type', gate: 'gate', zone: 'zone', soi: 'soi' };
+
+// ชุดตัวกรองหลายแบบ ใช้ตรวจว่าตัวเลขตรงกับผลลัพธ์จริงทุกกรณี
+const scenarios = () => [
+  {},
+  { gate: String(gateId('ประตู 4')) },
+  { gate: `${gateId('ประตู 4')},${gateId('ประตู 3')}`, max_price: '3000' },
+  { type: 'dorm,apartment', amenity: 'aircon' },
+  { amenity: 'aircon,parking_motorbike', max_price: '4000' },
+  { soi: String(soiId('ซอยกระบอกวิศวะ')), available: '1' },
+];
+
+test('Facet: เลือกประตู 4 แล้ว ตัวเลขของประตู 3 ยังไม่เป็น 0 (disjunctive)', () => {
+  const f = facets({ gate: String(gateId('ประตู 4')) });
+  assert.ok(f.gate[gateId('ประตู 3')] > 0);
+  assert.equal(f.gate[gateId('ประตู 3')], count({ gate: String(gateId('ประตู 3')) }));
+});
+
+test('Facet: ตัวเลขกลุ่ม OR = จำนวนผลลัพธ์จริงเมื่อเลือกค่านั้นในกลุ่ม ร่วมกับตัวกรองกลุ่มอื่น', () => {
+  const meta = {
+    type: db.prepare('SELECT code AS v FROM property_types').all().map((r) => r.v),
+    gate: db.prepare('SELECT id AS v FROM gates').all().map((r) => String(r.v)),
+    zone: db.prepare('SELECT id AS v FROM zones').all().map((r) => String(r.v)),
+    soi: db.prepare('SELECT id AS v FROM sois').all().map((r) => String(r.v)),
+  };
+  for (const q of scenarios()) {
+    const f = facets(q);
+    for (const [group, values] of Object.entries(meta)) {
+      for (const v of values) {
+        const expected = count({ ...q, [GROUP_PARAM[group]]: v });
+        assert.equal(f[group][v] ?? 0, expected, `${JSON.stringify(q)} → ${group}=${v}`);
+      }
+    }
+  }
+});
+
+test('Facet: ตัวเลขสิ่งอำนวยความสะดวก (AND) = จำนวนที่เหลือถ้าติ๊กข้อนั้นเพิ่ม', () => {
+  const codes = db.prepare('SELECT code FROM amenities').all().map((r) => r.code);
+  for (const q of scenarios()) {
+    const f = facets(q);
+    const chosen = q.amenity ? q.amenity.split(',') : [];
+    for (const code of codes) {
+      const expected = count({ ...q, amenity: [...new Set([...chosen, code])].join(',') });
+      assert.equal(f.amenity[code] ?? 0, expected, `${JSON.stringify(q)} → amenity=${code}`);
+    }
+  }
+  // ข้อที่ติ๊กอยู่แล้วมีตัวเลขเท่าจำนวนผลลัพธ์ปัจจุบัน
+  const q = { amenity: 'aircon' };
+  assert.equal(facets(q).amenity.aircon, count(q));
+});
+
+test('Facet: ช่วงราคาสำเร็จรูป = จำนวนผลลัพธ์จริงเมื่อกดปุ่มช่วงนั้น (แทนช่วงราคาเดิม)', () => {
+  for (const q of scenarios()) {
+    const f = facets(q);
+    const { max_price, min_price, ...rest } = q;
+    assert.equal(f.price['0-2500'], count({ ...rest, max_price: '2500' }));
+    assert.equal(f.price['0-3000'], count({ ...rest, max_price: '3000' }));
+    assert.equal(f.price['0-4000'], count({ ...rest, max_price: '4000' }));
+    assert.equal(f.price['0-5000'], count({ ...rest, max_price: '5000' }));
+    assert.equal(f.price['5001-'], count({ ...rest, min_price: '5001' }));
+  }
+});
+
+test('Facet: นับเฉพาะที่พักที่เผยแพร่แล้ว', () => {
+  const before = facets({});
+  const target = db.prepare("SELECT p.id, t.code FROM properties p JOIN property_types t ON t.id = p.type_id WHERE p.status = 'published' LIMIT 1").get();
+  db.prepare("UPDATE properties SET status = 'pending' WHERE id = ?").run(target.id);
+  try {
+    const after = facets({});
+    assert.equal((after.type[target.code] ?? 0), before.type[target.code] - 1);
+    const total = (f) => Object.values(f.type).reduce((a, b) => a + b, 0);
+    assert.equal(total(after), total(before) - 1);
+  } finally {
+    db.prepare("UPDATE properties SET status = 'published' WHERE id = ?").run(target.id);
+  }
+});

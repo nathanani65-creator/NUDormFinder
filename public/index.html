@@ -72,6 +72,7 @@
   <script src="/js/common.js"></script>
   <script>
     renderHeader('home');
+    enableCompareBar();
     // ส่งคำค้น ประเภท และงบ ไปหน้าผลการค้นหา (ช่องที่ว่างไม่ถูกส่ง จึงแสดงที่พักทั้งหมด)
     document.getElementById('heroSearch').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -167,6 +168,7 @@
       document.getElementById('featured').innerHTML = featured.length
         ? featured.map((p) => propertyCard(p)).join('')
         : '<p class="muted">ยังไม่มีที่พักที่เผยแพร่</p>';
+      refreshActions();
     })().catch((err) => toast(err.message));
   </script>
 </body>

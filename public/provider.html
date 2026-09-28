@@ -27,10 +27,11 @@
       const rows = await api('/api/my/properties');
       page.innerHTML = `
         <div class="results-head">
-          <div><h1 style="margin:0">ประกาศที่พักของฉัน</h1><p class="muted" style="margin:0">${esc(me.name)} · ${esc(me.email)} · <a href="#" id="logout">ออกจากระบบ</a></p></div>
+          <div><h1 style="margin:0">จัดการประกาศของฉัน</h1><p class="muted" style="margin:0">${esc(me.name)} · ${esc(me.email)} · <a href="#" id="logout">ออกจากระบบ</a></p></div>
           <button class="btn primary" id="newBtn">+ ลงประกาศที่พักใหม่</button>
         </div>
-        <div class="notice info">ประกาศใหม่จะแสดงบนเว็บหลังผู้ดูแลตรวจสอบและอนุมัติ ส่วนการแก้ไขประกาศที่เผยแพร่แล้วจะถูกส่งเป็น "คำขอแก้ไข" ข้อมูลเดิมยังแสดงอยู่จนกว่าจะอนุมัติ</div>
+        <div class="notice info">ประกาศใหม่จะแสดงบนเว็บหลังผู้ดูแลตรวจสอบและอนุมัติ ส่วนการแก้ไขประกาศที่เผยแพร่แล้วจะถูกส่งเป็น "คำขอแก้ไข" ข้อมูลเดิมยังแสดงอยู่จนกว่าจะอนุมัติ
+          <div class="status-legend">${statusChip('pending')} ยังไม่เผยแพร่ ${statusChip('published')} แสดงในผลการค้นหา ${statusChip('rejected')} ดูเหตุผลใต้ชื่อประกาศ แก้ไขแล้วส่งใหม่ได้</div></div>
         ${rows.length ? `<div class="table-wrap"><table class="list">
           <thead><tr><th>ชื่อที่พัก</th><th>ประเภท</th><th>ราคาเริ่มต้น</th><th>สถานะ</th><th>ตรวจสอบล่าสุด</th><th></th></tr></thead>
           <tbody>${rows.map((r) => `<tr>
@@ -87,14 +88,28 @@
     }
 
     (async () => {
-      me = await api('/api/auth/me');
+      me = await getMe();
       if (!me) {
         return renderAuthBox(page, {
           title: 'สำหรับผู้ประกอบการ / ผู้ให้เช่า',
-          intro: 'ลงประกาศหอพัก อพาร์ตเมนต์ คอนโด หรือบ้านเช่ารอบมหาวิทยาลัยนเรศวร ฟรี',
+          intro: 'ต้องสมัครบัญชีผู้ประกอบการและเข้าสู่ระบบก่อนจึงจะส่งประกาศที่พักได้ ประกาศจะเผยแพร่หลังผู้ดูแลตรวจสอบ',
           allowRegister: true,
+          roles: ['provider'],
           onDone: () => location.reload(),
         });
+      }
+      // สมาชิกลงประกาศไม่ได้ (API ก็ปฏิเสธด้วย)
+      if (me.role === 'member') {
+        page.innerHTML = `<div class="card empty" style="max-width:560px;margin:30px auto">
+          <h1 style="font-size:1.3rem">ลงประกาศได้เฉพาะบัญชีผู้ประกอบการ</h1>
+          <p>บัญชี ${esc(me.email)} เป็นบัญชีสมาชิก ใช้บันทึกและเปรียบเทียบที่พักได้ หากต้องการลงประกาศ กรุณาออกจากระบบแล้วสมัครบัญชีผู้ประกอบการด้วยอีเมลอื่น</p>
+          <div class="chips" style="justify-content:center"><a class="btn" href="/saved">ที่พักที่บันทึกไว้</a>
+          <button class="btn primary" id="switchAcc">ออกจากระบบและสมัครผู้ประกอบการ</button></div></div>`;
+        page.querySelector('#switchAcc').onclick = async () => {
+          await api('/api/auth/logout', { method: 'POST' });
+          location.href = '/login?type=provider&mode=register&next=/provider';
+        };
+        return;
       }
       const params = new URLSearchParams(location.search);
       if (params.get('edit')) showForm(Number(params.get('edit')));

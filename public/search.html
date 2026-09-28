@@ -35,9 +35,11 @@
                 <input type="number" name="max_price" min="0" step="100" placeholder="สูงสุด" aria-label="ราคาสูงสุด">
               </div>
               <div class="chips" style="margin-top:8px" id="pricePresets">
-                <button type="button" class="btn small" data-max="2500">≤ 2,500</button>
-                <button type="button" class="btn small" data-max="3000">≤ 3,000</button>
-                <button type="button" class="btn small" data-max="4000">≤ 4,000</button>
+                <button type="button" class="btn small price-preset" data-range="0-2500">≤ 2,500 <span class="facet-count" data-price-count="0-2500"></span></button>
+                <button type="button" class="btn small price-preset" data-range="0-3000">≤ 3,000 <span class="facet-count" data-price-count="0-3000"></span></button>
+                <button type="button" class="btn small price-preset" data-range="0-4000">≤ 4,000 <span class="facet-count" data-price-count="0-4000"></span></button>
+                <button type="button" class="btn small price-preset" data-range="0-5000">≤ 5,000 <span class="facet-count" data-price-count="0-5000"></span></button>
+                <button type="button" class="btn small price-preset" data-range="5001-">&gt; 5,000 <span class="facet-count" data-price-count="5001-"></span></button>
               </div>
               <label class="check" style="margin-top:8px"><input type="checkbox" name="available" value="1"> เฉพาะห้องที่ยังว่าง</label>
             </fieldset>
@@ -72,14 +74,45 @@
   <script src="/js/common.js"></script>
   <script>
     renderHeader('search');
+    enableCompareBar();
     const form = document.getElementById('filterForm');
     const map = createMap('map');
     const propLayer = L.layerGroup().addTo(map);
     const propMarkers = new Map();
-    let meta, gateMarkers, lastResults = [];
+    let meta, gateMarkers, lastResults = [], lastFacets = null;
 
+    // ตัวเลือกพร้อมช่องแสดงจำนวนผลลัพธ์ (Facet Count)
     const checkbox = (name, value, label) =>
-      `<label class="check"><input type="checkbox" name="${name}" value="${esc(value)}"> ${esc(label)}</label>`;
+      `<label class="check facet-option"><input type="checkbox" name="${name}" value="${esc(value)}"> <span class="facet-label">${esc(label)}</span><span class="facet-count" aria-hidden="true"></span></label>`;
+
+    /** อัปเดตตัวเลขข้างตัวเลือกทุกกลุ่ม ตัวเลือกที่ได้ 0 ปิดไว้ ยกเว้นตัวที่ติ๊กอยู่ (เพื่อให้เอาติ๊กออกได้) */
+    function updateFacetCounts(facets) {
+      if (!facets) return;
+      lastFacets = facets;
+      for (const group of ['type', 'gate', 'zone', 'soi', 'amenity']) {
+        form.querySelectorAll(`input[name=${group}]`).forEach((input) => {
+          const n = facets[group]?.[input.value] ?? 0;
+          const label = input.closest('.facet-option');
+          const zero = n === 0 && !input.checked;
+          input.disabled = zero;
+          label.classList.toggle('is-zero', zero);
+          label.querySelector('.facet-count').textContent = `(${n})`;
+          label.title = zero ? 'ไม่มีที่พักที่ตรงกับตัวกรองที่เลือกอยู่' : '';
+          input.setAttribute('aria-label', `${label.querySelector('.facet-label').textContent} ${n} ที่พัก`);
+        });
+      }
+      // ปุ่มช่วงราคา: แสดงจำนวน เน้นปุ่มที่เลือกอยู่ และปิดปุ่มที่ได้ 0
+      const min = form.elements.min_price.value, max = form.elements.max_price.value;
+      document.querySelectorAll('.price-preset').forEach((b) => {
+        const n = facets.price?.[b.dataset.range] ?? 0;
+        const [lo, hi] = b.dataset.range.split('-');
+        const active = (lo === '0' ? min === '' : min === lo) && max === (hi || '');
+        b.querySelector('.facet-count').textContent = `(${n})`;
+        b.classList.toggle('active', active);
+        b.disabled = n === 0 && !active;
+        b.setAttribute('aria-pressed', active);
+      });
+    }
 
     // ---------- อ่าน/เขียนเงื่อนไขกับ URL เพื่อให้แชร์ลิงก์ผลการค้นหาได้
     function readForm() {
@@ -121,6 +154,7 @@
         ? sois.map((s) => checkbox('soi', s.id, s.name)).join('')
         : '<span class="small muted">ไม่มีซอยในประตู/โซนที่เลือก</span>';
       form.querySelectorAll('input[name=soi]').forEach((i) => (i.checked = checked.has(i.value)));
+      updateFacetCounts(lastFacets);
     }
 
     function renderActiveFilters(params) {
@@ -163,11 +197,12 @@
       renderActiveFilters(params);
       highlightGates(params);
       const seq = ++searchSeq;
-      const { count, results } = await api(`/api/properties?${params}`);
+      const { count, results, facets } = await api(`/api/properties?${params}`);
       if (seq !== searchSeq) return; // ผลลัพธ์เก่าที่มาช้า
       lastResults = results;
       document.getElementById('count').textContent = `พบ ${count} ที่พัก`;
       renderResults(results);
+      updateFacetCounts(facets);
       track('search', { params: Object.fromEntries(params), count });
     }
 
@@ -181,6 +216,7 @@
       list.innerHTML = results.length
         ? results.map((p) => propertyCard(p, { compact: true })).join('')
         : `<div class="card empty">ไม่พบที่พักที่ตรงทุกเงื่อนไข<br><span class="small">ลองเพิ่มงบประมาณ ลดสิ่งอำนวยความสะดวก หรือเลือกประตูเพิ่ม</span></div>`;
+      refreshActions();
 
       propLayer.clearLayers();
       propMarkers.clear();
@@ -224,10 +260,14 @@
     });
     form.addEventListener('submit', (e) => e.preventDefault());
     document.getElementById('sort').addEventListener('change', () => runSearch());
+    // ปุ่มช่วงราคา: กดเพื่อเลือกช่วง กดซ้ำเพื่อยกเลิก
     document.getElementById('pricePresets').addEventListener('click', (e) => {
-      const b = e.target.closest('button');
-      if (!b) return;
-      form.elements.max_price.value = b.dataset.max;
+      const b = e.target.closest('.price-preset');
+      if (!b || b.disabled) return;
+      const [lo, hi] = b.dataset.range.split('-');
+      const off = b.classList.contains('active');
+      form.elements.min_price.value = off || lo === '0' ? '' : lo;
+      form.elements.max_price.value = off ? '' : hi || '';
       runSearch();
     });
     document.getElementById('clearBtn').addEventListener('click', () => {

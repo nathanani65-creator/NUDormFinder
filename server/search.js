@@ -66,32 +66,56 @@ function placeholders(list) {
   return list.map(() => '?').join(',');
 }
 
+// ตารางหลักของการค้นหา (ใช้ร่วมกันระหว่างรายการผลลัพธ์และการนับจำนวน)
+const BASE_FROM = `FROM properties p
+       JOIN property_types t ON t.id = p.type_id
+       LEFT JOIN sois s ON s.id = p.soi_id
+       LEFT JOIN zones z ON z.id = s.zone_id`;
+
+// ช่วงราคาสำเร็จรูปบนหน้าค้นหา (ตรงกับปุ่ม): key = "ต่ำสุด-สูงสุด"
+const PRICE_BUCKETS = [
+  { key: '0-2500', max: 2500 },
+  { key: '0-3000', max: 3000 },
+  { key: '0-4000', max: 4000 },
+  { key: '0-5000', max: 5000 },
+  { key: '5001-', min: 5001 },
+];
+
+/** เงื่อนไขห้องพัก: มีห้องอย่างน้อยหนึ่งประเภทที่ราคาอยู่ในช่วง (และว่าง ถ้าเลือก) */
+function roomExists({ min = null, max = null, availableOnly = false }, params) {
+  const conds = ['r.property_id = p.id'];
+  if (min != null) { conds.push('r.price >= ?'); params.push(min); }
+  if (max != null) { conds.push('r.price <= ?'); params.push(max); }
+  if (availableOnly) conds.push('r.available = 1');
+  return `EXISTS (SELECT 1 FROM room_types r WHERE ${conds.join(' AND ')})`;
+}
+
 /**
- * สร้าง SQL จากเงื่อนไข แล้วคืนรายการที่พักพร้อมระยะเส้นตรงถึงแต่ละประตู
+ * สร้างเงื่อนไข WHERE จากตัวกรอง
+ * exclude: ชื่อกลุ่มที่ไม่ต้องใส่เงื่อนไข (type, gate, zone, soi, amenity, price) ใช้ตอนนับจำนวนแบบ disjunctive
  */
-function searchProperties(db, filters) {
+function buildWhere(filters, { exclude = [] } = {}) {
+  const skip = new Set(exclude);
   const where = ["p.status = 'published'"];
   const params = [];
 
-  if (filters.types.length) {
+  if (filters.types.length && !skip.has('type')) {
     where.push(`t.code IN (${placeholders(filters.types)})`);
     params.push(...filters.types);
   }
-  if (filters.gates.length) {
-    where.push(
-      `p.id IN (SELECT property_id FROM property_gates WHERE gate_id IN (${placeholders(filters.gates)}))`
-    );
+  if (filters.gates.length && !skip.has('gate')) {
+    where.push(`p.id IN (SELECT property_id FROM property_gates WHERE gate_id IN (${placeholders(filters.gates)}))`);
     params.push(...filters.gates);
   }
-  if (filters.zones.length) {
+  if (filters.zones.length && !skip.has('zone')) {
     where.push(`s.zone_id IN (${placeholders(filters.zones)})`);
     params.push(...filters.zones);
   }
-  if (filters.sois.length) {
+  if (filters.sois.length && !skip.has('soi')) {
     where.push(`p.soi_id IN (${placeholders(filters.sois)})`);
     params.push(...filters.sois);
   }
-  if (filters.amenities.length) {
+  if (filters.amenities.length && !skip.has('amenity')) {
     // ต้องมีครบทุกข้อ: นับจำนวนที่ตรงแล้วเทียบกับจำนวนที่เลือก
     where.push(`(
       SELECT COUNT(*) FROM property_amenities pa
@@ -100,24 +124,57 @@ function searchProperties(db, filters) {
     ) = ?`);
     params.push(...filters.amenities, filters.amenities.length);
   }
-  if (filters.minPrice != null || filters.maxPrice != null || filters.availableOnly) {
-    const roomConds = ['r.property_id = p.id'];
-    if (filters.minPrice != null) {
-      roomConds.push('r.price >= ?');
-      params.push(filters.minPrice);
-    }
-    if (filters.maxPrice != null) {
-      roomConds.push('r.price <= ?');
-      params.push(filters.maxPrice);
-    }
-    if (filters.availableOnly) roomConds.push('r.available = 1');
-    where.push(`EXISTS (SELECT 1 FROM room_types r WHERE ${roomConds.join(' AND ')})`);
+  const price = skip.has('price') ? {} : { min: filters.minPrice, max: filters.maxPrice };
+  if (price.min != null || price.max != null || filters.availableOnly) {
+    where.push(roomExists({ ...price, availableOnly: filters.availableOnly }, params));
   }
   if (filters.q) {
     where.push('(p.name LIKE ? OR p.address LIKE ? OR s.name LIKE ?)');
     const like = `%${filters.q.replace(/[%_]/g, '')}%`;
     params.push(like, like, like);
   }
+  return { sql: where.join(' AND '), params };
+}
+
+/**
+ * นับจำนวนที่พักข้างตัวเลือกแต่ละตัว (Facet Counts)
+ *  - ประเภท ประตู โซน ซอย (OR): นับโดยไม่ใส่เงื่อนไขของกลุ่มตัวเอง แต่ใส่กลุ่มอื่นครบ (Disjunctive Faceting)
+ *    ตัวเลข = จำนวนที่พักถ้าเลือกค่านี้ในกลุ่มนั้น ร่วมกับตัวกรองกลุ่มอื่นที่เลือกอยู่
+ *  - สิ่งอำนวยความสะดวก (AND): นับโดยใส่เงื่อนไขทุกกลุ่ม (Conjunctive Faceting)
+ *    ตัวเลข = จำนวนที่พักที่จะเหลือถ้าติ๊กข้อนี้เพิ่ม
+ *  - ราคา: นับตามช่วงราคาสำเร็จรูป โดยไม่ใส่เงื่อนไขราคาที่เลือกอยู่
+ * นับจำนวนที่พัก (DISTINCT p.id) ไม่ใช่จำนวนห้อง และนับเฉพาะที่พักที่เผยแพร่แล้ว
+ */
+function computeFacets(db, filters) {
+  const grouped = (exclude, keyExpr, join = '') => {
+    const w = buildWhere(filters, { exclude });
+    const rows = db
+      .prepare(`SELECT ${keyExpr} AS k, COUNT(DISTINCT p.id) AS n ${BASE_FROM} ${join} WHERE ${w.sql} AND ${keyExpr} IS NOT NULL GROUP BY ${keyExpr}`)
+      .all(...w.params);
+    return Object.fromEntries(rows.map((r) => [String(r.k), r.n]));
+  };
+
+  const facets = {
+    type: grouped(['type'], 't.code'),
+    gate: grouped(['gate'], 'pg.gate_id', 'JOIN property_gates pg ON pg.property_id = p.id'),
+    zone: grouped(['zone'], 's.zone_id'),
+    soi: grouped(['soi'], 'p.soi_id'),
+    amenity: grouped([], 'fa.code', 'JOIN property_amenities fpa ON fpa.property_id = p.id JOIN amenities fa ON fa.id = fpa.amenity_id'),
+  };
+
+  const w = buildWhere(filters, { exclude: ['price'] });
+  const bucketParams = [];
+  const cols = PRICE_BUCKETS.map((b, i) => `SUM(${roomExists({ min: b.min, max: b.max, availableOnly: filters.availableOnly }, bucketParams)}) AS b${i}`);
+  const row = db.prepare(`SELECT ${cols.join(', ')} ${BASE_FROM} WHERE ${w.sql}`).get(...bucketParams, ...w.params);
+  facets.price = Object.fromEntries(PRICE_BUCKETS.map((b, i) => [b.key, row[`b${i}`] || 0]));
+  return facets;
+}
+
+/**
+ * สร้าง SQL จากเงื่อนไข แล้วคืนรายการที่พักพร้อมระยะเส้นตรงถึงแต่ละประตู
+ */
+function searchProperties(db, filters) {
+  const { sql, params } = buildWhere(filters);
 
   const rows = db
     .prepare(
@@ -128,11 +185,8 @@ function searchProperties(db, filters) {
               (SELECT MIN(price) FROM room_types WHERE property_id = p.id) AS price_min,
               (SELECT MAX(price) FROM room_types WHERE property_id = p.id) AS price_max,
               (SELECT url FROM property_images WHERE property_id = p.id ORDER BY room_type_id IS NOT NULL, sort_order, id LIMIT 1) AS cover
-       FROM properties p
-       JOIN property_types t ON t.id = p.type_id
-       LEFT JOIN sois s ON s.id = p.soi_id
-       LEFT JOIN zones z ON z.id = s.zone_id
-       WHERE ${where.join(' AND ')}`
+       ${BASE_FROM}
+       WHERE ${sql}`
     )
     .all(...params);
 
@@ -203,4 +257,4 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
   return results;
 }
 
-module.exports = { parseFilters, searchProperties, decorate, haversineMeters };
+module.exports = { parseFilters, searchProperties, computeFacets, buildWhere, decorate, haversineMeters, PRICE_BUCKETS };

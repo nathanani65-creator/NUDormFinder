@@ -7,16 +7,32 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'nudor
 const SCHEMA = `
 PRAGMA foreign_keys = ON;
 
--- ผู้ใช้ที่ต้องล็อกอิน: ผู้ประกอบการ (provider) และผู้ดูแลระบบ (admin)
--- ผู้ค้นหาที่พักไม่ต้องมีบัญชี
+-- ผู้ใช้ที่มีบัญชี: สมาชิก (member) ผู้ประกอบการ (provider) และผู้ดูแลระบบ (admin)
+-- ผู้ใช้ทั่วไปค้นหาและเปรียบเทียบได้โดยไม่ต้องมีบัญชี
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY,
   email         TEXT NOT NULL UNIQUE,
   name          TEXT NOT NULL,
   phone         TEXT,
   password_hash TEXT NOT NULL,
-  role          TEXT NOT NULL CHECK (role IN ('provider', 'admin')),
+  role          TEXT NOT NULL CHECK (role IN ('member', 'provider', 'admin')),
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- รายการโปรดของสมาชิก
+CREATE TABLE IF NOT EXISTS favorites (
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, property_id)
+);
+
+-- ชุดเปรียบเทียบของสมาชิก (สูงสุด 3 แห่ง ตรวจที่ API)
+CREATE TABLE IF NOT EXISTS compare_items (
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  position    INTEGER NOT NULL,
+  PRIMARY KEY (user_id, property_id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -264,6 +280,35 @@ function migrate(db) {
       }
       db.exec('PRAGMA user_version = 2');
     });
+  }
+  if (version < 3) {
+    // ฐานข้อมูลเดิมจำกัดบทบาทไว้แค่ provider/admin ต้องสร้างตาราง users ใหม่เพื่อเพิ่ม member
+    // (SQLite แก้ CHECK ของตารางเดิมไม่ได้) ปิด foreign key ระหว่างย้ายตามขั้นตอนของ SQLite
+    const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()?.sql || '';
+    if (!sql.includes("'member'")) {
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        tx(db, () => {
+          db.exec(`CREATE TABLE users_v3 (
+            id            INTEGER PRIMARY KEY,
+            email         TEXT NOT NULL UNIQUE,
+            name          TEXT NOT NULL,
+            phone         TEXT,
+            password_hash TEXT NOT NULL,
+            role          TEXT NOT NULL CHECK (role IN ('member', 'provider', 'admin')),
+            created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+          )`);
+          db.exec('INSERT INTO users_v3 (id, email, name, phone, password_hash, role, created_at) SELECT id, email, name, phone, password_hash, role, created_at FROM users');
+          db.exec('DROP TABLE users');
+          db.exec('ALTER TABLE users_v3 RENAME TO users');
+          const broken = db.prepare('PRAGMA foreign_key_check').all();
+          if (broken.length) throw new Error('foreign key check failed after users migration');
+        });
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+    }
+    db.exec('PRAGMA user_version = 3');
   }
 }
 

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>เข้าสู่ระบบ — NU Dorm Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
+</head>
+<body>
+  <main id="page"></main>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/auth-box.js"></script>
+  <script>
+    renderHeader('login');
+    const params = new URLSearchParams(location.search);
+    // รับเฉพาะปลายทางภายในเว็บไซต์ กันการพาไปเว็บอื่น
+    const next = /^\/(?!\/)/.test(params.get('next') || '') ? params.get('next') : null;
+    const page = document.getElementById('page');
+
+    getMe().then((me) => {
+      if (me) {
+        page.innerHTML = `<div class="card auth-box"><div class="card-body">
+          <h1 style="font-size:1.3rem">เข้าสู่ระบบอยู่แล้ว</h1>
+          <p>${esc(me.name)} (${ROLE_LABEL[me.role]})</p>
+          <a class="btn primary" href="${next || homeForRole(me.role)}">ไปต่อ</a></div></div>`;
+        return;
+      }
+      const type = params.get('type') === 'provider' ? 'provider' : 'member';
+      renderAuthBox(page, {
+        title: type === 'provider' ? 'บัญชีผู้ประกอบการ' : 'เข้าสู่ระบบ / สมัครสมาชิก',
+        intro: type === 'provider'
+          ? 'ต้องสมัครบัญชีผู้ประกอบการและเข้าสู่ระบบก่อนจึงจะส่งประกาศที่พักได้ ประกาศจะแสดงบนเว็บหลังผู้ดูแลตรวจสอบ'
+          : 'สมาชิกบันทึกที่พักที่สนใจและเก็บชุดเปรียบเทียบไว้ในบัญชีได้ ผู้ใช้ทั่วไปยังค้นหาและเปรียบเทียบได้โดยไม่ต้องเข้าสู่ระบบ',
+        allowRegister: true,
+        defaultRole: type,
+        startMode: params.get('mode') === 'register' ? 'register' : 'login',
+        onDone: (user) => (location.href = next || homeForRole(user.role)),
+      });
+    });
+  </script>
+</body>
+</html>

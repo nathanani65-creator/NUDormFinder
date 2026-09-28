@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>เปรียบเทียบที่พัก — NU Dorm Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
+</head>
+<body>
+  <main id="page"><p class="muted">กำลังโหลด…</p></main>
+
+  <script src="/js/common.js"></script>
+  <script>
+    renderHeader('compare');
+    const page = document.getElementById('page');
+    const dash = '<span class="muted">ยังไม่พบข้อมูล</span>';
+    const isUrl = (s) => /^https?:\/\/\S+$/.test(String(s || ''));
+
+    // ห้องแต่ละประเภทแสดงราคาและของในห้องของห้องนั้นเท่านั้น ไม่รวมข้ามห้อง
+    const roomsCell = (p) => p.rooms.map((r) => `
+      <div class="cmp-room">
+        <div class="cmp-room-head"><b>${esc(r.name)}</b><span class="cmp-price">${baht(r.price)} บาท/เดือน</span></div>
+        <div class="small muted">${[r.size_sqm ? `${r.size_sqm} ตร.ม.` : '', r.available ? 'มีห้องว่าง' : 'ห้องเต็ม'].filter(Boolean).join(' · ')}</div>
+        ${r.features_list.length ? `<ul class="feature-list one-col">${r.features_list.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '<div class="small muted">ของในห้อง: รอตรวจสอบ</div>'}
+      </div>`).join('');
+
+    function rulesCell(p) {
+      const items = p.rules.map((r) => `<li><b>${esc(r.topic)}:</b> ${esc(r.detail)}</li>`);
+      const codes = new Set(p.amenities.map((a) => a.code));
+      if (codes.has('women_only')) items.push('<li><b>ผู้พัก:</b> รับเฉพาะผู้หญิง</li>');
+      if (codes.has('men_only')) items.push('<li><b>ผู้พัก:</b> รับเฉพาะผู้ชาย</li>');
+      if (codes.has('pets') && !p.rules.some((r) => r.topic === 'สัตว์เลี้ยง')) items.push('<li><b>สัตว์เลี้ยง:</b> อนุญาต</li>');
+      if (p.lease_terms) items.push(`<li><b>สัญญาเช่า:</b> ${esc(p.lease_terms)}</li>`);
+      return items.length ? `<ul class="cmp-list">${items.join('')}</ul>` : '<span class="muted">รอตรวจสอบ</span>';
+    }
+
+    function render(list) {
+      if (list.length === 0) {
+        page.innerHTML = `<div class="card empty"><h1 style="font-size:1.3rem">เปรียบเทียบที่พัก (0/3)</h1>
+          <p>ยังไม่ได้เลือกที่พัก กด "⇄ เพิ่มไปเปรียบเทียบ" ในผลการค้นหาหรือหน้ารายละเอียด เลือกได้สูงสุด 3 แห่งต่อครั้ง</p>
+          <a class="btn primary" href="/search">ค้นหาที่พัก</a></div>`;
+        return;
+      }
+      const minPrice = (p) => Math.min(...p.rooms.map((r) => r.price));
+      const cheapest = Math.min(...list.map(minPrice));
+      const nearestGate = (p) => [...p.distances].sort((a, b) => a.straight_line_m - b.straight_line_m)[0];
+      // สิ่งอำนวยความสะดวกของหอพักที่ปรากฏในที่พักใดที่หนึ่ง (ไม่มีเครื่องหมาย = ไม่ได้ระบุ ไม่ได้แปลว่าไม่มี)
+      const facilities = new Map();
+      list.forEach((p) => p.amenities.filter((a) => (a.scope || 'building') === 'building').forEach((a) => facilities.set(a.code, a.name)));
+
+      const row = (label, fn, cls = '') => `<tr class="${cls}"><th scope="row">${label}</th>${list.map((p) => `<td>${fn(p)}</td>`).join('')}${fill()}</tr>`;
+      const fill = () => '<td class="cmp-empty"></td>'.repeat(3 - list.length);
+      const section = (label) => `<tr class="cmp-section"><th colspan="${list.length + 1 + (3 - list.length)}">${label}</th></tr>`;
+
+      page.innerHTML = `
+        <div class="results-head">
+          <div><h1 style="margin:0">เปรียบเทียบที่พัก (${list.length}/3)</h1>
+            <p class="muted" style="margin:0">ราคาแสดงแยกตามประเภทห้อง พร้อมของในห้องของห้องนั้น · เปรียบเทียบได้สูงสุด 3 แห่งต่อครั้ง</p></div>
+          ${list.length < 3 ? `<a class="btn" href="/search">+ เลือกเพิ่มอีก ${3 - list.length} แห่ง</a>` : ''}
+        </div>
+        ${list.length < 2 ? '<div class="notice info">เลือกอย่างน้อย 2 แห่งเพื่อเปรียบเทียบให้เห็นความต่าง</div>' : ''}
+        <div class="cmp-wrap">
+          <table class="cmp-table">
+            <thead><tr><th scope="col" class="cmp-corner"></th>
+              ${list.map((p) => `<th scope="col">
+                <div class="cmp-cover">${p.images[0] ? `<img src="${esc(p.images[0].url)}" alt="">` : esc(p.type_name)}</div>
+                <a class="cmp-name" href="/property?id=${p.id}">${esc(p.name)}</a>
+                <div class="cmp-head-actions">
+                  <button type="button" class="btn small" data-save="${p.id}"><span aria-hidden="true">♡</span> <span>บันทึกที่พัก</span></button>
+                  <button type="button" class="btn small danger" data-remove="${p.id}">นำออก</button>
+                </div></th>`).join('')}
+              ${'<th class="cmp-empty"><a class="empty-add" href="/search">+ เพิ่มที่พัก</a></th>'.repeat(3 - list.length)}
+            </tr></thead>
+            <tbody>
+              ${section('ภาพรวม')}
+              ${row('ประเภท', (p) => esc(p.type_name))}
+              ${row('ราคาเริ่มต้น', (p) => `<span class="cmp-price ${minPrice(p) === cheapest && list.length > 1 ? 'best' : ''}">${baht(minPrice(p))} บาท/เดือน</span>${minPrice(p) === cheapest && list.length > 1 ? ' <span class="chip ok">ถูกที่สุด</span>' : ''}`)}
+              ${section('ทำเล')}
+              ${row('ซอย / โซน', (p) => [p.soi_name, p.zone_name].filter(Boolean).map(esc).join('<br>') || dash)}
+              ${row('ประตูที่ใกล้ที่สุด', (p) => { const g = nearestGate(p); return `${esc(g.gate_name)} · ${distanceText(g.straight_line_m)} <span class="small muted">(เส้นตรง)</span>`; })}
+              ${row('ที่อยู่', (p) => esc(p.address))}
+              ${row('สถานที่ใกล้เคียง', (p) => p.nearby.length ? `<ul class="cmp-list">${p.nearby.slice(0, 4).map((n) => `<li>${esc(n.name)}${n.display_distance_m != null ? ` · ${distanceText(n.display_distance_m)}` : ''}</li>`).join('')}</ul>` : '<span class="muted">รอตรวจสอบ</span>')}
+              ${section('ห้องพักและราคา')}
+              ${row('ประเภทห้อง', roomsCell, 'cmp-rooms')}
+              ${section('ค่าใช้จ่ายอื่น')}
+              ${row('เงินประกัน', (p) => (p.deposit != null ? `${baht(p.deposit)} บาท` : dash))}
+              ${row('ค่าน้ำ', (p) => esc(p.water_rate) || dash)}
+              ${row('ค่าไฟ', (p) => esc(p.electric_rate) || dash)}
+              ${row('ค่าใช้จ่ายอื่น', (p) => esc(p.other_fees) || dash)}
+              ${section('สิ่งอำนวยความสะดวกของหอพัก')}
+              ${facilities.size ? [...facilities].map(([code, name]) => row(esc(name), (p) => (p.amenities.some((a) => a.code === code) ? '<span class="yes">✓ มี</span>' : '<span class="muted">ไม่ได้ระบุ</span>'))).join('') : row('รายการ', () => '<span class="muted">รอตรวจสอบ</span>')}
+              ${section('เงื่อนไข')}
+              ${row('ข้อกำหนด', rulesCell)}
+              ${section('ช่องทางติดต่อ')}
+              ${row('โทรศัพท์', (p) => (p.contact_phone ? `<a href="tel:${esc(p.contact_phone.replace(/[^\d+]/g, ''))}">${esc(p.contact_phone)}</a>` : dash))}
+              ${row('LINE', (p) => esc(p.contact_line) || dash)}
+              ${row('Facebook', (p) => (isUrl(p.contact_facebook) ? `<a target="_blank" rel="noopener" href="${esc(p.contact_facebook)}">เปิดเพจ</a>` : dash))}
+              ${row('เว็บไซต์', (p) => (isUrl(p.contact_website) ? `<a target="_blank" rel="noopener" href="${esc(p.contact_website)}">เปิดเว็บไซต์</a>` : dash))}
+              ${row('ตรวจสอบล่าสุด', (p) => freshnessChip(p.verified_at))}
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted">"ไม่ได้ระบุ" หมายถึงยังไม่มีข้อมูลว่ามีสิ่งนั้น ไม่ได้แปลว่าไม่มี · ระยะทางเป็นระยะเส้นตรงจากพิกัด</p>`;
+      refreshActions();
+    }
+
+    async function load() {
+      await Compare.load();
+      await Favorites.load();
+      render(Compare.ids.length ? await api(`/api/compare?ids=${Compare.ids.join(',')}`) : []);
+    }
+
+    page.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-remove]');
+      if (b) Compare.remove(Number(b.dataset.remove));
+    });
+    document.addEventListener('compare-changed', () => load().catch((err) => toast(err.message)));
+    load().catch((err) => (page.innerHTML = `<div class="notice error">${esc(err.message)}</div>`));
+  </script>
+</body>
+</html>

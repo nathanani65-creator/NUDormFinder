@@ -310,6 +310,7 @@ function render(p) {
       <header class="pd-head">
         <h1>${esc(p.name)}</h1>
         <p class="muted" style="margin:-4px 0 0">${esc(p.address)}${p.soi_name && !p.address.includes(p.soi_name) ? ` · ${esc(p.soi_name)}` : ''}</p>
+        ${actionButtons(p.id)}
       </header>
       ${galleryHtml(p)}
       <aside class="pd-side">${sideContactHtml(p)}${sideLocationHtml(p)}</aside>
@@ -329,6 +330,7 @@ function render(p) {
   document.body.classList.add('has-mobile-bar');
 
   bindCarousels(page);
+  enableCompareBar();
   document.getElementById('allImagesBtn')?.addEventListener('click', () => openAllImages('ภาพอาคารทั้งหมด', p.images));
   page.querySelectorAll('.mosaic-item').forEach((b) => b.addEventListener('click', () => openViewer(p.images, Number(b.dataset.view))));
   page.addEventListener('click', (e) => {

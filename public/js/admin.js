@@ -197,9 +197,11 @@ async function tabProperties(host) {
     <div id="propTable"></div>`;
   async function load() {
     const rows = await api(`/api/admin/properties?status=${host.querySelector('#statusFilter').value}`);
-    host.querySelector('#propTable').innerHTML = `<div class="table-wrap"><table class="list"><thead><tr><th>ชื่อ</th><th>ประเภท</th><th>ซอย</th><th>เจ้าของ</th><th>สถานะ</th><th>ตรวจสอบล่าสุด</th><th></th></tr></thead><tbody>
+    host.querySelector('#propTable').innerHTML = `<div class="table-wrap"><table class="list"><thead><tr><th>ชื่อ</th><th>ประเภท</th><th>ซอย</th><th>เจ้าของ</th><th>สถานะ</th><th>เหตุผล / หมายเหตุ</th><th>ตรวจสอบล่าสุด</th><th></th></tr></thead><tbody>
       ${rows.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${esc(r.type_name)}</td><td>${esc(r.soi_name || '-')}</td><td>${esc(r.owner_name || '-')}</td>
-        <td>${statusChip(r.status)}</td><td>${freshnessChip(r.verified_at)}</td>
+        <td>${statusChip(r.status)}${r.pending_edits ? '<div><span class="chip warn">มีคำขอแก้ไขรอตรวจสอบ</span></div>' : ''}</td>
+        <td class="small">${r.status === 'rejected' ? `<span style="color:var(--bad)">${esc(r.review_note || '-')}</span>` : esc(r.review_note || '')}</td>
+        <td>${freshnessChip(r.verified_at)}</td>
         <td><button class="btn small" data-review="${r.id}">จัดการ</button></td></tr>`).join('')}
     </tbody></table></div>`;
     host.querySelectorAll('[data-review]').forEach((b) => (b.onclick = () => reviewProperty(Number(b.dataset.review))));

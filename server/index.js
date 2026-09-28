@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 
 const { open, tx } = require('./db');
-const { parseFilters, searchProperties, decorate } = require('./search');
+const { parseFilters, searchProperties, computeFacets, decorate } = require('./search');
 const props = require('./properties');
 const auth = require('./auth');
 const { seed } = require('./seed');
@@ -20,6 +20,8 @@ function createApp(db) {
 
   const provider = auth.requireRole('provider', 'admin');
   const admin = auth.requireRole('admin');
+  const member = auth.requireRole('member');
+  const MAX_COMPARE = 3;
   const idParam = (req) => parseInt(req.params.id, 10);
 
   // ---------------------------------------------------------------- ข้อมูลอ้างอิง
@@ -60,7 +62,7 @@ function createApp(db) {
   app.get('/api/properties', (req, res) => {
     const filters = parseFilters(req.query);
     const results = searchProperties(db, filters);
-    res.json({ count: results.length, filters, results });
+    res.json({ count: results.length, filters, results, facets: computeFacets(db, filters) });
   });
 
   app.get('/api/featured', (_req, res) => {
@@ -126,12 +128,16 @@ function createApp(db) {
     if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(email)) {
       return res.status(409).json({ error: 'อีเมลนี้ถูกใช้แล้ว' });
     }
-    // สมัครผ่านหน้าเว็บได้เฉพาะผู้ประกอบการ ผู้ดูแลระบบสร้างด้วยสคริปต์ seed เท่านั้น
+    // สมัครผ่านหน้าเว็บได้เฉพาะสมาชิกหรือผู้ประกอบการ ผู้ดูแลระบบสร้างด้วยสคริปต์ seed เท่านั้น
+    const role = req.body.role === 'provider' ? 'provider' : 'member';
+    if (req.body.role != null && !['member', 'provider'].includes(req.body.role)) {
+      return res.status(400).json({ error: 'ประเภทบัญชีไม่ถูกต้อง' });
+    }
     const { lastInsertRowid } = db
-      .prepare("INSERT INTO users (email, name, phone, password_hash, role) VALUES (?, ?, ?, ?, 'provider')")
-      .run(email, name, phone, auth.hashPassword(password));
+      .prepare('INSERT INTO users (email, name, phone, password_hash, role) VALUES (?, ?, ?, ?, ?)')
+      .run(email, name, phone, auth.hashPassword(password), role);
     auth.createSession(db, res, Number(lastInsertRowid));
-    res.status(201).json({ id: Number(lastInsertRowid), email, name, role: 'provider' });
+    res.status(201).json({ id: Number(lastInsertRowid), email, name, role });
   });
 
   app.post('/api/auth/login', (req, res) => {
@@ -150,6 +156,82 @@ function createApp(db) {
   });
 
   app.get('/api/auth/me', (req, res) => res.json(req.user || null));
+
+  // ---------------------------------------------------------------- เปรียบเทียบ (ทุกคนใช้ได้)
+  const publishedIds = (ids) => {
+    if (!ids.length) return [];
+    const ok = new Set(
+      db.prepare(`SELECT id FROM properties WHERE status = 'published' AND id IN (${ids.map(() => '?').join(',')})`).all(...ids).map((r) => r.id)
+    );
+    return ids.filter((id) => ok.has(id));
+  };
+  const parseIds = (v) => [...new Set(String(v ?? '').split(',').map((x) => parseInt(x, 10)).filter((n) => n > 0))];
+
+  // ข้อมูลเต็มของที่พักที่เลือก (ราคาแยกตามประเภทห้อง ไม่รวมข้ามห้อง)
+  app.get('/api/compare', (req, res) => {
+    const ids = parseIds(req.query.ids);
+    if (ids.length > MAX_COMPARE) return res.status(400).json({ error: `เปรียบเทียบได้สูงสุด ${MAX_COMPARE} แห่งต่อครั้ง` });
+    const list = publishedIds(ids).map((id) => {
+      const p = props.getProperty(db, id);
+      delete p.owner_id;
+      delete p.verified_by;
+      return p;
+    });
+    res.json(list);
+  });
+
+  // ---------------------------------------------------------------- สมาชิก: รายการโปรดและชุดเปรียบเทียบ
+  app.get('/api/me/favorites', member, (req, res) => {
+    const ids = db.prepare('SELECT property_id FROM favorites WHERE user_id = ? ORDER BY created_at DESC, property_id').all(req.user.id).map((r) => r.property_id);
+    const visible = publishedIds(ids);
+    const rows = visible.length
+      ? decorate(db, db.prepare(
+        `SELECT p.id, p.name, p.lat, p.lng, p.address, p.verified_at, p.data_source,
+                t.code AS type_code, t.name AS type_name, s.id AS soi_id, s.name AS soi_name, z.id AS zone_id, z.name AS zone_name,
+                (SELECT MIN(price) FROM room_types WHERE property_id = p.id) AS price_min,
+                (SELECT MAX(price) FROM room_types WHERE property_id = p.id) AS price_max,
+                (SELECT url FROM property_images WHERE property_id = p.id ORDER BY room_type_id IS NOT NULL, sort_order, id LIMIT 1) AS cover
+         FROM properties p JOIN property_types t ON t.id = p.type_id LEFT JOIN sois s ON s.id = p.soi_id LEFT JOIN zones z ON z.id = s.zone_id
+         WHERE p.id IN (${visible.map(() => '?').join(',')})`).all(...visible), { gates: [], sort: 'verified' })
+      : [];
+    const order = new Map(visible.map((id, i) => [id, i]));
+    rows.sort((a, b) => order.get(a.id) - order.get(b.id));
+    // ที่พักที่ถูกซ่อน/ยกเลิกเผยแพร่หลังบันทึก: แจ้งจำนวนไว้ ไม่แสดงข้อมูล
+    res.json({ items: rows, unavailable: ids.length - visible.length });
+  });
+
+  app.put('/api/me/favorites/:id', member, (req, res) => {
+    const id = idParam(req);
+    if (!publishedIds([id]).length) return res.status(404).json({ error: 'ไม่พบที่พัก' });
+    db.prepare('INSERT OR IGNORE INTO favorites (user_id, property_id) VALUES (?, ?)').run(req.user.id, id);
+    res.json({ saved: true });
+  });
+
+  app.delete('/api/me/favorites/:id', member, (req, res) => {
+    db.prepare('DELETE FROM favorites WHERE user_id = ? AND property_id = ?').run(req.user.id, idParam(req));
+    res.json({ saved: false });
+  });
+
+  app.get('/api/me/favorite-ids', member, (req, res) => {
+    res.json(db.prepare('SELECT property_id FROM favorites WHERE user_id = ?').all(req.user.id).map((r) => r.property_id));
+  });
+
+  app.get('/api/me/compare', member, (req, res) => {
+    const ids = db.prepare('SELECT property_id FROM compare_items WHERE user_id = ? ORDER BY position').all(req.user.id).map((r) => r.property_id);
+    res.json(publishedIds(ids));
+  });
+
+  app.put('/api/me/compare', member, (req, res) => {
+    const ids = parseIds(Array.isArray(req.body.ids) ? req.body.ids.join(',') : req.body.ids);
+    if (ids.length > MAX_COMPARE) return res.status(400).json({ error: `เปรียบเทียบได้สูงสุด ${MAX_COMPARE} แห่งต่อครั้ง` });
+    const valid = publishedIds(ids);
+    tx(db, () => {
+      db.prepare('DELETE FROM compare_items WHERE user_id = ?').run(req.user.id);
+      const ins = db.prepare('INSERT INTO compare_items (user_id, property_id, position) VALUES (?, ?, ?)');
+      valid.forEach((id, i) => ins.run(req.user.id, id, i));
+    });
+    res.json(valid);
+  });
 
   // ---------------------------------------------------------------- อัปโหลดรูป
   const upload = multer({
@@ -262,8 +344,9 @@ function createApp(db) {
     const status = String(req.query.status || '');
     const rows = db
       .prepare(
-        `SELECT p.id, p.name, p.status, p.verified_at, p.updated_at, t.name AS type_name, s.name AS soi_name,
-                u.name AS owner_name
+        `SELECT p.id, p.name, p.status, p.review_note, p.verified_at, p.updated_at, t.name AS type_name, s.name AS soi_name,
+                u.name AS owner_name,
+                (SELECT COUNT(*) FROM edit_requests e WHERE e.property_id = p.id AND e.status = 'pending') AS pending_edits
          FROM properties p JOIN property_types t ON t.id = p.type_id LEFT JOIN sois s ON s.id = p.soi_id
          LEFT JOIN users u ON u.id = p.owner_id
          WHERE (? = '' OR p.status = ?) ORDER BY p.updated_at DESC`

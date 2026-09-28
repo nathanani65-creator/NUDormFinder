@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ที่พักที่บันทึกไว้ — NU Dorm Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
+</head>
+<body>
+  <main id="page"><p class="muted">กำลังโหลด…</p></main>
+
+  <script src="/js/common.js"></script>
+  <script>
+    renderHeader('saved');
+    enableCompareBar();
+    const page = document.getElementById('page');
+
+    async function load() {
+      const me = await getMe();
+      if (!me) {
+        page.innerHTML = `<div class="card empty" style="max-width:520px;margin:30px auto">
+          <h1 style="font-size:1.3rem">ที่พักที่บันทึกไว้</h1>
+          <p>ต้องสมัครสมาชิกหรือเข้าสู่ระบบก่อน จึงจะบันทึกที่พักและเก็บรายการไว้ในบัญชีได้</p>
+          <div class="chips" style="justify-content:center">
+            <a class="btn primary" href="/login?mode=register&type=member&next=/saved">สมัครสมาชิก</a>
+            <a class="btn" href="/login?next=/saved">เข้าสู่ระบบ</a></div></div>`;
+        return;
+      }
+      if (me.role !== 'member') {
+        page.innerHTML = `<div class="card empty" style="max-width:520px;margin:30px auto">
+          <p>หน้านี้สำหรับบัญชีสมาชิก บัญชีของคุณเป็น${ROLE_LABEL[me.role]}</p>
+          <a class="btn" href="${me.role === 'admin' ? '/admin' : '/provider'}">ไปที่${me.role === 'admin' ? 'หน้าผู้ดูแลระบบ' : 'จัดการประกาศของฉัน'}</a></div>`;
+        return;
+      }
+      const { items, unavailable } = await api('/api/me/favorites');
+      await Favorites.load();
+      page.innerHTML = `
+        <div class="results-head">
+          <div><h1 style="margin:0">ที่พักที่บันทึกไว้</h1>
+            <p class="muted" style="margin:0">${items.length} แห่ง · เลือก "เพิ่มไปเปรียบเทียบ" ได้สูงสุด 3 แห่ง แล้วกดดูการเปรียบเทียบ</p></div>
+          <a class="btn" href="/compare">ดูการเปรียบเทียบ (<span data-compare-count>${Compare.ids.length}/3</span>)</a>
+        </div>
+        ${unavailable ? `<div class="notice">มี ${unavailable} แห่งที่บันทึกไว้แต่ขณะนี้ไม่ได้เผยแพร่ (อาจอยู่ระหว่างตรวจสอบหรือปิดประกาศ) จึงไม่แสดงในรายการ</div>` : ''}
+        ${items.length ? `<div class="results-list saved-list">${items.map((p) => propertyCard(p, { compact: true })).join('')}</div>`
+          : `<div class="card empty">ยังไม่มีที่พักที่บันทึกไว้<br><span class="small">กด "♡ บันทึกที่พัก" ในผลการค้นหาหรือหน้ารายละเอียด</span><br><a class="btn primary" href="/search" style="margin-top:12px">ค้นหาที่พัก</a></div>`}`;
+      refreshActions();
+    }
+
+    // นำออกจากรายการโปรดแล้วเอาการ์ดออกจากหน้าทันที
+    document.addEventListener('favorites-changed', (e) => {
+      if (!e.detail.saved) document.querySelector(`[data-card="${e.detail.id}"]`)?.remove();
+    });
+
+    load().catch((err) => (page.innerHTML = `<div class="notice error">${esc(err.message)}</div>`));
+  </script>
+</body>
+</html>
