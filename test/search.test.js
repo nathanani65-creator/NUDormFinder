@@ -111,9 +111,7 @@ test('Facet: เลือกประตู 4 แล้ว ตัวเลขข
 test('Facet: ตัวเลขกลุ่ม OR = จำนวนผลลัพธ์จริงเมื่อเลือกค่านั้นในกลุ่ม ร่วมกับตัวกรองกลุ่มอื่น', () => {
   const meta = {
     type: db.prepare('SELECT code AS v FROM property_types').all().map((r) => r.v),
-    gate: db.prepare('SELECT id AS v FROM gates').all().map((r) => String(r.v)),
     zone: db.prepare('SELECT id AS v FROM zones').all().map((r) => String(r.v)),
-    soi: db.prepare('SELECT id AS v FROM sois').all().map((r) => String(r.v)),
   };
   for (const q of scenarios()) {
     const f = facets(q);
@@ -121,6 +119,55 @@ test('Facet: ตัวเลขกลุ่ม OR = จำนวนผลลั�
       for (const v of values) {
         const expected = count({ ...q, [GROUP_PARAM[group]]: v });
         assert.equal(f[group][v] ?? 0, expected, `${JSON.stringify(q)} → ${group}=${v}`);
+      }
+    }
+  }
+});
+
+test('Facet: ตัวเลขประตู = จำนวนที่พักของประตูนั้นทุกซอย ร่วมกับตัวกรองอื่น', () => {
+  const gates = db.prepare('SELECT id FROM gates').all().map((r) => String(r.id));
+  for (const q of scenarios()) {
+    const f = facets(q);
+    for (const g of gates) assert.equal(f.gate[g] ?? 0, count({ ...q, gate: g, soi: '' }), `${JSON.stringify(q)} → gate=${g}`);
+  }
+});
+
+// ---------------------------------------------------------------- ซอยอยู่ใต้ประตู
+// หาซอย s ที่อยู่ใต้ประตู g แต่ไม่อยู่ใต้ประตู h และมีที่พักในประตู g นอกซอย s ด้วย
+function nestedCase() {
+  const links = db.prepare('SELECT soi_id, gate_id FROM soi_gates').all();
+  const gates = db.prepare('SELECT id FROM gates').all().map((r) => r.id);
+  for (const { soi_id: s, gate_id: g } of links) {
+    const inG = search({ gate: String(g) });
+    if (!inG.some((r) => r.soi_id !== s) || !inG.some((r) => r.soi_id === s)) continue;
+    const h = gates.find((x) => x !== g && !links.some((l) => l.soi_id === s && l.gate_id === x) && search({ gate: String(x) }).length);
+    if (h) return { s, g, h };
+  }
+  throw new Error('ข้อมูลตัวอย่างไม่มีกรณีที่ใช้ทดสอบได้');
+}
+
+test('ซอยใต้ประตู: เลือกซอยใต้ประตูหนึ่ง ไม่ตัดผลของประตูอื่นที่เลือกไว้ (ทุกซอย)', () => {
+  const { s, g, h } = nestedCase();
+  const ids = (q) => search(q).map((r) => r.id).sort();
+  const onlySoiInG = search({ gate: String(g), soi: String(s) });
+  assert.ok(onlySoiInG.length > 0 && onlySoiInG.every((r) => r.soi_id === s));
+  const expected = [...new Set([...ids({ gate: String(h) }), ...onlySoiInG.map((r) => r.id)])].sort();
+  assert.deepEqual(ids({ gate: `${g},${h}`, soi: String(s) }), expected);
+});
+
+test('ซอยใต้ประตู: ไม่เลือกประตู กรองตามซอยอย่างเดียว (ลิงก์เดิมยังใช้ได้)', () => {
+  const { s } = nestedCase();
+  const r = search({ soi: String(s) });
+  assert.ok(r.length > 0 && r.every((x) => x.soi_id === s));
+});
+
+test('Facet: ตัวเลขซอยใต้ประตูที่เลือก = จำนวนผลลัพธ์เมื่อเลือกซอยนั้นใต้ประตูนั้น', () => {
+  const { g, h } = nestedCase();
+  for (const q of [{ gate: `${g},${h}` }, { gate: `${g},${h}`, max_price: '3000' }, { gate: String(g), max_distance: '500' }]) {
+    const f = facets(q);
+    for (const gate of q.gate.split(',')) {
+      for (const { soi_id } of db.prepare('SELECT soi_id FROM soi_gates WHERE gate_id = ?').all(gate)) {
+        assert.equal(f.soi_by_gate[gate][soi_id] ?? 0, count({ ...q, gate, soi: String(soi_id) }), `${JSON.stringify(q)} → ${gate}/${soi_id}`);
       }
     }
   }

@@ -118,12 +118,60 @@ function referenceDistances(db, gateIds) {
   return out;
 }
 
-/** ถ้าเลือกตัวกรองระยะทาง: คำนวณรายการที่พักที่อยู่ในระยะ (nearIds) ให้ buildWhere ใช้ */
-function resolveDistance(db, filters) {
-  if (!filters.maxDistance) return filters;
-  const nearIds = [];
-  for (const [id, m] of referenceDistances(db, filters.gates)) if (m <= filters.maxDistance) nearIds.push(id);
-  return { ...filters, nearIds };
+/**
+ * เตรียมข้อมูลที่ buildWhere ต้องใช้แต่คำนวณใน SQL ไม่ได้
+ *  - soiGates: ซอยแต่ละซอยอยู่ใต้ประตูใด (ใช้จับคู่ซอยที่เลือกกับประตูที่เลือก)
+ *  - nearIds: ที่พักที่อยู่ในระยะที่เลือก (ระยะคำนวณด้วย Haversine)
+ */
+function resolveFilters(db, filters) {
+  const out = { ...filters };
+  if (filters.sois.length) {
+    out.soiGates = new Map();
+    for (const r of db.prepare(`SELECT soi_id, gate_id FROM soi_gates WHERE soi_id IN (${placeholders(filters.sois)})`).all(...filters.sois)) {
+      if (!out.soiGates.has(r.soi_id)) out.soiGates.set(r.soi_id, new Set());
+      out.soiGates.get(r.soi_id).add(r.gate_id);
+    }
+  }
+  if (filters.maxDistance) {
+    out.nearIds = [];
+    for (const [id, m] of referenceDistances(db, filters.gates)) if (m <= filters.maxDistance) out.nearIds.push(id);
+  }
+  return out;
+}
+
+/**
+ * เงื่อนไขตำแหน่งแบบลำดับชั้น ประตู → ซอย
+ *  - ประตูที่เลือกรวมกันด้วย OR
+ *  - ซอยที่เลือกใต้ประตูใด จำกัดเฉพาะประตูนั้น ประตูที่ไม่ได้เลือกซอยได้ทุกซอย
+ *    เช่น ประตู 3 (ทุกซอย) OR (ประตู 4 AND ซอยกระบอกวิศวะ)
+ *  - ซอยที่ไม่อยู่ใต้ประตูที่เลือก (เช่น มาจากลิงก์) รวมเข้ามาด้วย OR, ไม่เลือกประตูเลย กรองตามซอยอย่างเดียว
+ */
+function locationClause(filters, params) {
+  const { gates, sois } = filters;
+  if (!gates.length) {
+    if (!sois.length) return null;
+    params.push(...sois);
+    return `p.soi_id IN (${placeholders(sois)})`;
+  }
+  const parts = [];
+  const claimed = new Set();
+  for (const g of gates) {
+    const own = sois.filter((s) => filters.soiGates?.get(s)?.has(g));
+    own.forEach((s) => claimed.add(s));
+    params.push(g);
+    let part = 'p.id IN (SELECT property_id FROM property_gates WHERE gate_id = ?)';
+    if (own.length) {
+      part += ` AND p.soi_id IN (${placeholders(own)})`;
+      params.push(...own);
+    }
+    parts.push(`(${part})`);
+  }
+  const orphan = sois.filter((s) => !claimed.has(s));
+  if (orphan.length) {
+    parts.push(`p.soi_id IN (${placeholders(orphan)})`);
+    params.push(...orphan);
+  }
+  return `(${parts.join(' OR ')})`;
 }
 
 /** เงื่อนไขห้องพัก: มีห้องอย่างน้อยหนึ่งประเภทที่ราคาอยู่ในช่วง (และว่าง ถ้าเลือก) */
@@ -137,8 +185,8 @@ function roomExists({ min = null, max = null, availableOnly = false }, params) {
 
 /**
  * สร้างเงื่อนไข WHERE จากตัวกรอง
- * exclude: ชื่อกลุ่มที่ไม่ต้องใส่เงื่อนไข (type, gate, zone, soi, amenity, price, distance) ใช้ตอนนับจำนวนแบบ disjunctive
- * ตัวกรองระยะทางต้องผ่าน resolveDistance ก่อน เพราะระยะคำนวณด้วย Haversine นอก SQL
+ * exclude: ชื่อกลุ่มที่ไม่ต้องใส่เงื่อนไข (type, zone, amenity, price, distance) ใช้ตอนนับจำนวนแบบ disjunctive
+ * filters ต้องผ่าน resolveFilters ก่อน
  */
 function buildWhere(filters, { exclude = [] } = {}) {
   const skip = new Set(exclude);
@@ -149,17 +197,11 @@ function buildWhere(filters, { exclude = [] } = {}) {
     where.push(`t.code IN (${placeholders(filters.types)})`);
     params.push(...filters.types);
   }
-  if (filters.gates.length && !skip.has('gate')) {
-    where.push(`p.id IN (SELECT property_id FROM property_gates WHERE gate_id IN (${placeholders(filters.gates)}))`);
-    params.push(...filters.gates);
-  }
+  const location = locationClause(filters, params);
+  if (location) where.push(location);
   if (filters.zones.length && !skip.has('zone')) {
     where.push(`s.zone_id IN (${placeholders(filters.zones)})`);
     params.push(...filters.zones);
-  }
-  if (filters.sois.length && !skip.has('soi')) {
-    where.push(`p.soi_id IN (${placeholders(filters.sois)})`);
-    params.push(...filters.sois);
   }
   if (filters.amenities.length && !skip.has('amenity')) {
     // ต้องมีครบทุกข้อ: นับจำนวนที่ตรงแล้วเทียบกับจำนวนที่เลือก
@@ -188,8 +230,10 @@ function buildWhere(filters, { exclude = [] } = {}) {
 
 /**
  * นับจำนวนที่พักข้างตัวเลือกแต่ละตัว (Facet Counts)
- *  - ประเภท ประตู โซน ซอย (OR): นับโดยไม่ใส่เงื่อนไขของกลุ่มตัวเอง แต่ใส่กลุ่มอื่นครบ (Disjunctive Faceting)
+ *  - ประเภท โซน (OR): นับโดยไม่ใส่เงื่อนไขของกลุ่มตัวเอง แต่ใส่กลุ่มอื่นครบ (Disjunctive Faceting)
  *    ตัวเลข = จำนวนที่พักถ้าเลือกค่านี้ในกลุ่มนั้น ร่วมกับตัวกรองกลุ่มอื่นที่เลือกอยู่
+ *  - ประตู: จำนวนที่พักของประตูนั้นทุกซอย ร่วมกับตัวกรองอื่น (ระยะทางวัดจากประตูนั้นเอง)
+ *  - ซอยใต้ประตูที่เลือก (soi_by_gate): จำนวนที่พักของประตูนั้นในซอยนั้น ร่วมกับตัวกรองอื่น
  *  - สิ่งอำนวยความสะดวก (AND): นับโดยใส่เงื่อนไขทุกกลุ่ม (Conjunctive Faceting)
  *    ตัวเลข = จำนวนที่พักที่จะเหลือถ้าติ๊กข้อนี้เพิ่ม
  *  - ราคา: นับตามช่วงราคาสำเร็จรูป โดยไม่ใส่เงื่อนไขราคาที่เลือกอยู่
@@ -197,8 +241,11 @@ function buildWhere(filters, { exclude = [] } = {}) {
  * นับจำนวนที่พัก (DISTINCT p.id) ไม่ใช่จำนวนห้อง และนับเฉพาะที่พักที่เผยแพร่แล้ว
  */
 function computeFacets(db, rawFilters) {
-  const filters = resolveDistance(db, rawFilters);
-  const count = (w) => db.prepare(`SELECT COUNT(*) AS n ${BASE_FROM} WHERE ${w.sql}`).get(...w.params).n;
+  const filters = resolveFilters(db, rawFilters);
+  const countOf = (f) => {
+    const w = buildWhere(resolveFilters(db, f));
+    return db.prepare(`SELECT COUNT(*) AS n ${BASE_FROM} WHERE ${w.sql}`).get(...w.params).n;
+  };
   const grouped = (exclude, keyExpr, join = '') => {
     const w = buildWhere(filters, { exclude });
     const rows = db
@@ -209,9 +256,7 @@ function computeFacets(db, rawFilters) {
 
   const facets = {
     type: grouped(['type'], 't.code'),
-    gate: grouped(['gate'], 'pg.gate_id', 'JOIN property_gates pg ON pg.property_id = p.id'),
     zone: grouped(['zone'], 's.zone_id'),
-    soi: grouped(['soi'], 'p.soi_id'),
     amenity: grouped([], 'fa.code', 'JOIN property_amenities fpa ON fpa.property_id = p.id JOIN amenities fa ON fa.id = fpa.amenity_id'),
   };
 
@@ -221,12 +266,18 @@ function computeFacets(db, rawFilters) {
   const row = db.prepare(`SELECT ${cols.join(', ')} ${BASE_FROM} WHERE ${w.sql}`).get(...bucketParams, ...w.params);
   facets.price = Object.fromEntries(PRICE_BUCKETS.map((b, i) => [b.key, row[`b${i}`] || 0]));
 
-  // เมื่อกรองระยะทาง ระยะวัดจากประตูที่เลือก ตัวเลขของประตูแต่ละประตูจึงต้องวัดระยะจากประตูนั้นเอง
-  if (filters.maxDistance) {
-    facets.gate = {};
-    for (const { id } of db.prepare('SELECT id FROM gates').all()) {
-      const n = count(buildWhere(resolveDistance(db, { ...rawFilters, gates: [id] })));
-      if (n) facets.gate[id] = n;
+  // ประตูและซอยนับทีละค่า เพราะซอยขึ้นกับประตู และระยะทางวัดจากประตูที่เลือก
+  facets.gate = {};
+  for (const { id } of db.prepare('SELECT id FROM gates').all()) {
+    const n = countOf({ ...rawFilters, gates: [id], sois: [] });
+    if (n) facets.gate[id] = n;
+  }
+  facets.soi_by_gate = {};
+  for (const g of rawFilters.gates) {
+    facets.soi_by_gate[g] = {};
+    for (const { soi_id } of db.prepare('SELECT soi_id FROM soi_gates WHERE gate_id = ?').all(g)) {
+      const n = countOf({ ...rawFilters, gates: [g], sois: [soi_id] });
+      if (n) facets.soi_by_gate[g][soi_id] = n;
     }
   }
 
@@ -241,7 +292,7 @@ function computeFacets(db, rawFilters) {
  * สร้าง SQL จากเงื่อนไข แล้วคืนรายการที่พักพร้อมระยะเส้นตรงถึงแต่ละประตู
  */
 function searchProperties(db, filters) {
-  const { sql, params } = buildWhere(resolveDistance(db, filters));
+  const { sql, params } = buildWhere(resolveFilters(db, filters));
 
   const rows = db
     .prepare(

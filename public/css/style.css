@@ -655,3 +655,7 @@ body.has-compare-bar.has-mobile-bar { padding-bottom: 160px; }
 .view-toggle button + button { border-left: 1px solid var(--line); }
 .view-toggle button.active { background: var(--accent); color: #fff; font-weight: 600; }
 @media (max-width: 1000px) { .view-toggle { display: inline-flex; } }
+
+/* ประตู → ซอย: รายการซอยซ้อนใต้ประตูที่เลือก */
+.soi-sub { margin: 2px 0 6px 8px; padding-left: 14px; border-left: 2px solid var(--line); font-size: .93rem; }
+.soi-sub .soi-all-opt .facet-label { font-weight: 600; }

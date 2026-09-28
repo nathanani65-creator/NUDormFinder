@@ -25,7 +25,7 @@
               <input type="text" id="q" name="q" placeholder="เช่น กระบอก">
             </div>
             <fieldset><legend>ประเภทที่พัก <span class="rule">(เลือกได้หลายค่า)</span></legend><div id="fType"></div></fieldset>
-            <fieldset><legend>ประตู <span class="rule">(ใกล้ประตูใดก็ได้ที่เลือก)</span></legend><div id="fGate"></div></fieldset>
+            <fieldset><legend>ประตูและซอย <span class="rule">(ใกล้ประตูใดก็ได้ที่เลือก)</span></legend><div id="fGate"></div></fieldset>
             <fieldset>
               <legend>ระยะจากประตู <span class="rule">(ระยะเส้นตรง)</span></legend>
               <div id="fDistance">
@@ -37,7 +37,6 @@
               <p class="small muted" style="margin:6px 0 0">วัดจากประตูที่เลือก ถ้ายังไม่เลือกประตู วัดจากประตูที่ใกล้ที่พักที่สุด</p>
             </fieldset>
             <fieldset><legend>โซน</legend><div id="fZone"></div></fieldset>
-            <fieldset><legend>ซอย</legend><div id="fSoi"></div></fieldset>
             <fieldset>
               <legend>ราคาต่อเดือน (บาท) <span class="rule">(มีห้องในช่วงนี้)</span></legend>
               <div class="grid-2">
@@ -104,20 +103,26 @@
     function updateFacetCounts(facets) {
       if (!facets) return;
       lastFacets = facets;
-      for (const group of ['type', 'gate', 'zone', 'soi', 'amenity', 'distance']) {
+      const show = (input, n) => {
+        const label = input.closest('.facet-option');
+        const zero = n === 0 && !input.checked;
+        input.disabled = zero;
+        label.classList.toggle('is-zero', zero);
+        label.querySelector('.facet-count').textContent = `(${n})`;
+        label.title = zero ? 'ไม่มีที่พักที่ตรงกับตัวกรองที่เลือกอยู่' : '';
+        input.setAttribute('aria-label', `${label.querySelector('.facet-label').textContent} ${n} ที่พัก`);
+      };
+      for (const group of ['type', 'gate', 'zone', 'amenity', 'distance']) {
         const name = group === 'distance' ? 'max_distance' : group;
         form.querySelectorAll(`input[name=${name}]`).forEach((input) => {
-          if (input.value === '') return; // "ไม่จำกัด" ไม่มีตัวเลข
-          const n = facets[group]?.[input.value] ?? 0;
-          const label = input.closest('.facet-option');
-          const zero = n === 0 && !input.checked;
-          input.disabled = zero;
-          label.classList.toggle('is-zero', zero);
-          label.querySelector('.facet-count').textContent = `(${n})`;
-          label.title = zero ? 'ไม่มีที่พักที่ตรงกับตัวกรองที่เลือกอยู่' : '';
-          input.setAttribute('aria-label', `${label.querySelector('.facet-label').textContent} ${n} ที่พัก`);
+          if (input.value !== '') show(input, facets[group]?.[input.value] ?? 0); // "ไม่จำกัด" ไม่มีตัวเลข
         });
       }
+      // ซอยใต้ประตู: ตัวเลขของซอยนั้นในประตูนั้น, "ทุกซอย" = ตัวเลขของประตู
+      form.querySelectorAll('input[name=soi]').forEach((input) =>
+        show(input, facets.soi_by_gate?.[input.dataset.gate]?.[input.value] ?? 0)
+      );
+      form.querySelectorAll('.soi-all').forEach((input) => show(input, facets.gate?.[input.dataset.gate] ?? 0));
       // ปุ่มช่วงราคา: แสดงจำนวน เน้นปุ่มที่เลือกอยู่ และปิดปุ่มที่ได้ 0
       const min = form.elements.min_price.value, max = form.elements.max_price.value;
       document.querySelectorAll('.price-preset').forEach((b) => {
@@ -136,7 +141,7 @@
       const fd = new FormData(form);
       const params = new URLSearchParams();
       for (const key of ['type', 'gate', 'zone', 'soi', 'amenity']) {
-        const vals = fd.getAll(key);
+        const vals = [...new Set(fd.getAll(key))]; // ซอยที่อยู่ใต้หลายประตูมีช่องติ๊กหลายช่อง
         if (vals.length) params.set(key, vals.join(','));
       }
       for (const key of ['q', 'min_price', 'max_price']) {
@@ -162,18 +167,47 @@
       document.getElementById('sort').value = params.get('sort') || 'distance';
     }
 
-    // ซอยที่แสดงขึ้นกับประตู/โซนที่เลือก เพื่อให้นิสิตใหม่เห็นว่าซอยใดอยู่กับประตูใด
-    function renderSoiOptions() {
-      const checked = new Set([...form.querySelectorAll('input[name=soi]:checked')].map((i) => i.value));
-      const gates = [...form.querySelectorAll('input[name=gate]:checked')].map((i) => Number(i.value));
-      const zones = [...form.querySelectorAll('input[name=zone]:checked')].map((i) => Number(i.value));
-      const sois = meta.sois.filter(
-        (s) => (!gates.length || s.gate_ids.some((g) => gates.includes(g))) && (!zones.length || zones.includes(s.zone_id))
-      );
-      document.getElementById('fSoi').innerHTML = sois.length
-        ? sois.map((s) => checkbox('soi', s.id, s.name)).join('')
-        : '<span class="small muted">ไม่มีซอยในประตู/โซนที่เลือก</span>';
-      form.querySelectorAll('input[name=soi]').forEach((i) => (i.checked = checked.has(i.value)));
+    // ---------- ประตู → ซอย: ติ๊กประตูแล้วรายการซอยของประตูนั้นแสดงข้างใต้ (ค่าเริ่มต้น "ทุกซอย")
+    // ซอยที่อยู่ใต้หลายประตูมีช่องติ๊กใต้ทุกประตู และติ๊กพร้อมกันเสมอ
+    function gateTreeHtml() {
+      return meta.gates.map((g) => {
+        const sois = meta.sois.filter((s) => s.gate_ids.includes(g.id));
+        return `<div class="gate-node" data-gate="${g.id}">
+          ${checkbox('gate', g.id, g.short_name)}
+          ${sois.length ? `<div class="soi-sub" role="group" aria-label="ซอยของ${esc(g.short_name)}" hidden>
+            <label class="check facet-option soi-all-opt"><input type="checkbox" class="soi-all" data-gate="${g.id}"> <span class="facet-label">ทุกซอย</span><span class="facet-count" aria-hidden="true"></span></label>
+            ${sois.map((s) => `<label class="check facet-option" data-zone="${s.zone_id}"><input type="checkbox" name="soi" value="${s.id}" data-gate="${g.id}"> <span class="facet-label">${esc(s.name)}</span><span class="facet-count" aria-hidden="true"></span></label>`).join('')}
+          </div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    const setSoi = (value, on) => form.querySelectorAll(`input[name=soi][value="${CSS.escape(value)}"]`).forEach((i) => (i.checked = on));
+
+    /** เอาติ๊กประตูออก: ซอยของประตูนั้นถูกยกเลิกด้วย ยกเว้นซอยที่ยังอยู่ใต้ประตูอื่นที่เลือกอยู่ */
+    function releaseGate(gateId) {
+      form.querySelectorAll(`input[name=soi][data-gate="${gateId}"]:checked`).forEach((i) => {
+        const keep = [...form.querySelectorAll(`input[name=soi][value="${i.value}"]`)].some(
+          (x) => x.dataset.gate !== String(gateId) && form.querySelector(`input[name=gate][value="${x.dataset.gate}"]`).checked
+        );
+        if (!keep) setSoi(i.value, false);
+      });
+    }
+
+    /** แสดง/ซ่อนรายการซอยตามประตูที่เลือก ซ่อนซอยนอกโซนที่เลือก และตั้งสถานะ "ทุกซอย" */
+    function syncGateTree() {
+      const zones = [...form.querySelectorAll('input[name=zone]:checked')].map((i) => i.value);
+      form.querySelectorAll('.gate-node').forEach((node) => {
+        const sub = node.querySelector('.soi-sub');
+        if (!sub) return;
+        sub.hidden = !node.querySelector('input[name=gate]').checked;
+        sub.querySelectorAll('input[name=soi]').forEach((i) => {
+          const outside = zones.length > 0 && !zones.includes(i.closest('label').dataset.zone);
+          i.closest('label').hidden = outside;
+          if (outside && i.checked) setSoi(i.value, false);
+        });
+        sub.querySelector('.soi-all').checked = !sub.querySelector('input[name=soi]:checked');
+      });
       updateFacetCounts(lastFacets);
     }
 
@@ -209,8 +243,9 @@
       if (['min_price', 'max_price', 'q'].includes(k)) form.elements[k].value = '';
       else if (k === 'available') form.elements.available.checked = false;
       else if (k === 'max_distance') form.querySelector('input[name=max_distance][value=""]').checked = true;
-      else form.querySelector(`input[name=${k}][value="${CSS.escape(v)}"]`).checked = false;
-      if (k === 'gate' || k === 'zone') renderSoiOptions();
+      else form.querySelectorAll(`input[name=${k}][value="${CSS.escape(v)}"]`).forEach((i) => (i.checked = false));
+      if (k === 'gate') releaseGate(v);
+      if (['gate', 'zone', 'soi'].includes(k)) syncGateTree();
       runSearch();
     });
 
@@ -279,7 +314,14 @@
     // ---------- เหตุการณ์ของฟอร์ม
     let debounce;
     form.addEventListener('input', (e) => {
-      if (e.target.name === 'gate' || e.target.name === 'zone') renderSoiOptions();
+      const t = e.target;
+      if (t.classList.contains('soi-all')) {
+        // "ทุกซอย": ยกเลิกซอยที่เลือกไว้ใต้ประตูนี้ (กดซ้ำตอนติ๊กอยู่แล้วไม่มีผล)
+        form.querySelectorAll(`input[name=soi][data-gate="${t.dataset.gate}"]:checked`).forEach((i) => setSoi(i.value, false));
+      }
+      if (t.name === 'soi') setSoi(t.value, t.checked);
+      if (t.name === 'gate' && !t.checked) releaseGate(t.value);
+      if (['gate', 'zone', 'soi'].includes(t.name) || t.classList.contains('soi-all')) syncGateTree();
       clearTimeout(debounce);
       debounce = setTimeout(runSearch, ['checkbox', 'radio'].includes(e.target.type) ? 0 : 350);
     });
@@ -298,7 +340,7 @@
     document.getElementById('clearBtn').addEventListener('click', () => {
       form.reset();
       document.getElementById('sort').value = 'distance';
-      renderSoiOptions();
+      syncGateTree();
       runSearch();
     });
     document.querySelector('.view-toggle').addEventListener('click', (e) => {
@@ -324,7 +366,7 @@
     (async () => {
       meta = await getMeta();
       document.getElementById('fType').innerHTML = meta.types.map((t) => checkbox('type', t.code, t.name)).join('');
-      document.getElementById('fGate').innerHTML = meta.gates.map((g) => checkbox('gate', g.id, g.short_name)).join('');
+      document.getElementById('fGate').innerHTML = gateTreeHtml();
       document.getElementById('fZone').innerHTML = meta.zones.map((z) => checkbox('zone', z.id, z.name)).join('');
       document.getElementById('fAmenity').innerHTML = meta.amenities.map((a) => checkbox('amenity', a.code, a.name)).join('');
 
@@ -333,15 +375,15 @@
         const box = form.querySelector(`input[name=gate][value="${g.id}"]`);
         box.checked = !box.checked;
         track('gate_select', { gate_id: g.id, page: 'search', selected: box.checked });
-        renderSoiOptions();
+        if (!box.checked) releaseGate(g.id);
+        syncGateTree();
         runSearch();
       });
 
       const params = new URLSearchParams(location.search);
-      // เลือกเพียงซอยจากลิงก์ ให้ติ๊กซอยได้แม้ยังไม่ได้เลือกประตู
+      // ลิงก์ที่มีเพียงซอย (ไม่มีประตู) ยังกรองตามซอยได้ และแสดงเป็นป้ายเงื่อนไข
       writeForm(params);
-      renderSoiOptions();
-      writeForm(params);
+      syncGateTree();
       await runSearch({ push: false });
     })().catch((err) => toast(err.message));
   </script>
