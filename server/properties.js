@@ -8,8 +8,11 @@ const DUPLICATE_RADIUS_M = 40;
 
 const TEXT_FIELDS = [
   'description', 'water_rate', 'electric_rate', 'other_fees', 'lease_terms',
-  'contact_name', 'contact_phone', 'contact_line', 'contact_facebook', 'contact_website', 'data_source',
+  'contact_name', 'contact_phone', 'contact_line', 'contact_facebook', 'contact_website', 'data_source', 'map_url',
 ];
+
+// ลิงก์ Google Maps ที่รับ: ลิงก์แชร์ (maps.app.goo.gl, goo.gl/maps) หรือ google.com/maps
+const MAP_URL = /^https:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|(www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)\/\S*$/;
 
 const IMAGE_CATEGORIES = ['ด้านหน้าอาคาร', 'รอบอาคาร', 'ทางเข้า', 'พื้นที่ส่วนกลาง', 'ที่จอดรถ', 'อื่น ๆ'];
 const RULE_TOPICS = ['สัตว์เลี้ยง', 'เสียงและความสงบ', 'เวลาเข้าออกอาคาร', 'ผู้มาเยี่ยม', 'การสูบบุหรี่', 'การทำอาหาร', 'สัญญาเช่า', 'อื่น ๆ'];
@@ -49,8 +52,8 @@ function validatePayload(db, body = {}) {
     name: str(body.name, 150),
     address: str(body.address, 500),
     soi_id: body.soi_id ? parseInt(body.soi_id, 10) : null,
-    lat: Number(body.lat),
-    lng: Number(body.lng),
+    lat: body.lat === '' || body.lat == null ? NaN : Number(body.lat),
+    lng: body.lng === '' || body.lng == null ? NaN : Number(body.lng),
     deposit: body.deposit === '' || body.deposit == null ? null : parseInt(body.deposit, 10),
   };
   for (const f of TEXT_FIELDS) data[f] = str(body[f]);
@@ -81,6 +84,9 @@ function validatePayload(db, body = {}) {
 
   if (!data.contact_phone && !data.contact_line && !data.contact_facebook && !data.contact_website) {
     errors.push('กรุณาระบุช่องทางติดต่ออย่างน้อยหนึ่งช่องทาง');
+  }
+  if (data.map_url && !MAP_URL.test(data.map_url)) {
+    errors.push('ลิงก์ Google Maps ต้องเป็นลิงก์จาก Google Maps เช่น https://maps.app.goo.gl/...');
   }
   if (data.contact_website && !/^https?:\/\/\S+$/.test(data.contact_website)) {
     errors.push('เว็บไซต์ต้องเป็นลิงก์เต็มที่ขึ้นต้นด้วย https://');
@@ -290,7 +296,7 @@ function reviewChecklist(db, p) {
     { label: 'ประเภท', ok: !!p.type_id },
     { label: 'ราคาห้องอย่างน้อย 1 ประเภท', ok: p.rooms.length > 0 },
     { label: 'ที่อยู่', ok: !!p.address },
-    { label: 'พิกัด', ok: Number.isFinite(p.lat) && Number.isFinite(p.lng) },
+    { label: 'พิกัด', ok: p.lat != null && p.lng != null },
     { label: 'ซอย', ok: !!p.soi_id },
     { label: 'รูปภาพอาคาร', ok: p.images.length > 0 },
     { label: 'รูปภายในห้องครบทุกประเภท', ok: p.rooms.length > 0 && p.rooms.every((r) => r.images.length > 0) },
@@ -303,14 +309,18 @@ function reviewChecklist(db, p) {
   const duplicates = db
     .prepare("SELECT id, name, lat, lng, status FROM properties WHERE id != ? AND status != 'rejected'")
     .all(p.id || 0)
-    .map((o) => ({ ...o, distance_m: Math.round(haversineMeters(p.lat, p.lng, o.lat, o.lng)) }))
-    .filter((o) => o.distance_m <= DUPLICATE_RADIUS_M || (norm(o.name) && norm(o.name) === norm(p.name)))
+    .map((o) => ({
+      ...o,
+      distance_m: p.lat != null && o.lat != null ? Math.round(haversineMeters(p.lat, p.lng, o.lat, o.lng)) : null,
+    }))
+    .filter((o) => (o.distance_m != null && o.distance_m <= DUPLICATE_RADIUS_M) || (norm(o.name) && norm(o.name) === norm(p.name)))
     .map(({ id, name, status, distance_m }) => ({ id, name, status, distance_m }));
 
   return { checks, duplicates };
 }
 
 module.exports = {
+  MAP_URL,
   validatePayload, createProperty, updateProperty, getProperty, reviewChecklist,
   IMAGE_CATEGORIES, RULE_TOPICS, NEARBY_CATEGORIES, DISTANCE_TYPES,
 };

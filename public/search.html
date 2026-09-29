@@ -6,7 +6,6 @@
   <title>ค้นหาที่พัก — NU Dorm Finder</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="icon" href="/img/logo-mark.svg?v=2" type="image/svg+xml">
 </head>
@@ -71,29 +70,17 @@
           </label>
         </div>
         <div class="active-filters" id="activeFilters"></div>
-        <!-- จอแคบ: สลับดูรายการหรือแผนที่ แทนการวางแผนที่ทับรายการ -->
-        <div class="view-toggle" role="group" aria-label="มุมมองผลการค้นหา">
-          <button type="button" data-view="list" class="active" aria-pressed="true">☰ รายการ</button>
-          <button type="button" data-view="map" aria-pressed="false">🗺 แผนที่</button>
-        </div>
-        <div class="results-split" id="resultsSplit">
-          <div class="results-list" id="results"></div>
-          <div id="map" class="map"></div>
-        </div>
+        <div class="results-grid" id="results"></div>
       </section>
     </div>
   </main>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="/js/common.js"></script>
   <script>
     renderHeader('search');
     enableCompareBar();
     const form = document.getElementById('filterForm');
-    const map = createMap('map');
-    const propLayer = L.layerGroup().addTo(map);
-    const propMarkers = new Map();
-    let meta, gateMarkers, lastResults = [], lastFacets = null;
+    let meta, lastResults = [], lastFacets = null;
 
     // ตัวเลือกพร้อมช่องแสดงจำนวนผลลัพธ์ (Facet Count)
     const checkbox = (name, value, label) =>
@@ -250,7 +237,6 @@
       const params = readForm();
       if (push) history.replaceState(null, '', params.toString() ? `?${params}` : location.pathname);
       renderActiveFilters(params);
-      highlightGates(params);
       const seq = ++searchSeq;
       const { count, results, facets } = await api(`/api/properties?${params}`);
       if (seq !== searchSeq) return; // ผลลัพธ์เก่าที่มาช้า
@@ -261,50 +247,13 @@
       track('search', { params: Object.fromEntries(params), count });
     }
 
-    function highlightGates(params) {
-      const selected = (params.get('gate') || '').split(',').map(Number);
-      gateMarkers.forEach((m, id) => m.setIcon(gateIcon(meta.gates.find((g) => g.id === id), selected.includes(id))));
-    }
-
     function renderResults(results) {
       const list = document.getElementById('results');
       list.innerHTML = results.length
         ? results.map((p) => propertyCard(p, { compact: true })).join('')
         : `<div class="card empty">ไม่พบที่พักที่ตรงทุกเงื่อนไข<br><span class="small">ลองเพิ่มงบประมาณ ลดสิ่งอำนวยความสะดวก หรือเลือกประตูเพิ่ม</span></div>`;
       refreshActions();
-
-      propLayer.clearLayers();
-      propMarkers.clear();
-      for (const p of results) {
-        const m = L.marker([p.lat, p.lng], { icon: propIcon(p) })
-          .bindPopup(`<b>${esc(p.name)}</b><br>${esc(p.type_name)} · ${priceRange(p.price_min, p.price_max)}<br>
-            ห่าง${esc(p.nearest_gate.gate_name)} ${distanceText(p.nearest_gate.straight_line_m)} (เส้นตรง)<br>
-            <a href="/property?id=${p.id}">ดูรายละเอียด</a>`)
-          .addTo(propLayer);
-        m.on('mouseover', () => highlight(p.id, true));
-        m.on('mouseout', () => highlight(p.id, false));
-        propMarkers.set(p.id, m);
-      }
-      const points = results.map((p) => [p.lat, p.lng]);
-      const gates = readForm().get('gate');
-      if (gates) meta.gates.filter((g) => gates.split(',').includes(String(g.id))).forEach((g) => points.push([g.lat, g.lng]));
-      if (points.length) fitTo(map, L.latLngBounds(points).pad(0.2), { maxZoom: 17 });
     }
-
-    function highlight(id, on) {
-      const p = lastResults.find((r) => r.id === id);
-      propMarkers.get(id)?.setIcon(propIcon(p, on)).setZIndexOffset(on ? 1000 : 0);
-      document.querySelector(`.rcard[data-id="${id}"]`)?.classList.toggle('hl', on);
-    }
-
-    document.getElementById('results').addEventListener('mouseover', (e) => {
-      const c = e.target.closest('.rcard');
-      if (c) highlight(Number(c.dataset.id), true);
-    });
-    document.getElementById('results').addEventListener('mouseout', (e) => {
-      const c = e.target.closest('.rcard');
-      if (c && !c.contains(e.relatedTarget)) highlight(Number(c.dataset.id), false);
-    });
 
     // ---------- เหตุการณ์ของฟอร์ม
     let debounce;
@@ -338,22 +287,6 @@
       syncGateTree();
       runSearch();
     });
-    document.querySelector('.view-toggle').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-view]');
-      if (!b) return;
-      const showMap = b.dataset.view === 'map';
-      document.getElementById('resultsSplit').classList.toggle('show-map', showMap);
-      document.querySelectorAll('.view-toggle [data-view]').forEach((x) => {
-        x.classList.toggle('active', x === b);
-        x.setAttribute('aria-pressed', x === b);
-      });
-      if (showMap) {
-        // แผนที่ที่เพิ่งแสดงต้องคำนวณขนาดใหม่แล้วจัดมุมมองให้เห็นผลลัพธ์ทั้งหมด
-        map.invalidateSize();
-        const pts = lastResults.map((p) => [p.lat, p.lng]);
-        if (pts.length) fitTo(map, L.latLngBounds(pts).pad(0.2), { maxZoom: 17 });
-      }
-    });
     document.getElementById('filterToggle').addEventListener('click', () =>
       document.getElementById('filterBox').classList.toggle('collapsed')
     );
@@ -362,16 +295,6 @@
       meta = await getMeta();
       document.getElementById('fType').innerHTML = meta.types.map((t) => checkbox('type', t.code, t.name)).join('');
       document.getElementById('fGate').innerHTML = gateTreeHtml();      document.getElementById('fAmenity').innerHTML = meta.amenities.map((a) => checkbox('amenity', a.code, a.name)).join('');
-
-      // กดหมุดประตูบนแผนที่ = สลับการเลือกประตูนั้น
-      gateMarkers = addGateMarkers(map, meta.gates, (g) => {
-        const box = form.querySelector(`input[name=gate][value="${g.id}"]`);
-        box.checked = !box.checked;
-        track('gate_select', { gate_id: g.id, page: 'search', selected: box.checked });
-        if (!box.checked) releaseGate(g.id);
-        syncGateTree();
-        runSearch();
-      });
 
       const params = new URLSearchParams(location.search);
       // ลิงก์ที่มีเพียงซอย (ไม่มีประตู) ยังกรองตามซอยได้ และแสดงเป็นป้ายเงื่อนไข

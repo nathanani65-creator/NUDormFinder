@@ -659,3 +659,46 @@ body.has-compare-bar.has-mobile-bar { padding-bottom: 160px; }
 /* ประตู → ซอย: รายการซอยซ้อนใต้ประตูที่เลือก */
 .soi-sub { margin: 2px 0 6px 8px; padding-left: 14px; border-left: 2px solid var(--line); font-size: .93rem; }
 .soi-sub .soi-all-opt .facet-label { font-weight: 600; }
+
+/* รูปในสไลด์: กดเพื่อดูภาพเต็ม */
+.carousel-img { cursor: zoom-in; }
+
+/* ค่าใช้จ่ายอื่นในกล่องราคา (ต่อจากราคา ก่อนปุ่มและช่องทางติดต่อ) */
+.side-costs { margin-top: 12px; padding: 10px 12px 4px; background: #f6faf9; border: 1px solid var(--line); border-radius: 10px; }
+.side-costs-title { font-weight: 600; font-size: .9rem; color: var(--ink-2); margin-bottom: 2px; }
+.side-costs .contact-row { font-size: .88rem; padding: 6px 0; }
+.side-costs .contact-row:last-child { border-bottom: 0; }
+
+/* แกลเลอรีอาคาร: รูปแรกเด่น + แถบรูปย่อด้านล่าง (ทุกขนาดจอ) */
+.gallery-main { position: relative; }
+.gallery-all { position: absolute; right: 12px; top: 12px; background: #fff; box-shadow: var(--shadow); }
+.gallery-thumbs { margin-top: 10px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.gallery-thumbs button { flex: 0 0 120px; height: 80px; scroll-snap-align: start; }
+@media (max-width: 700px) { .gallery-thumbs button { flex-basis: 84px; height: 60px; } }
+
+/* หน้าค้นหา: ไม่มีแผนที่ การ์ดที่พักแถวละ 1 หอ เต็มความกว้าง (รูปซ้าย ข้อมูลขวา) */
+.results-grid { display: flex; flex-direction: column; gap: 16px; }
+.results-grid .rcard-wrap { display: flex; flex-direction: column; transition: box-shadow .15s, transform .15s; }
+.results-grid .rcard-wrap:hover { box-shadow: 0 6px 18px rgba(16,24,40,.12); transform: translateY(-1px); }
+.results-grid .rcard { grid-template-columns: 340px 1fr; flex: 1; }
+.results-grid .rcard .cover { min-height: 230px; font-size: 1rem; overflow: hidden; position: relative; }
+.results-grid .rcard .cover img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.results-grid .rcard .body { padding: 18px 22px; gap: 7px; font-size: 1rem; }
+.results-grid .rcard .name { font-weight: 700; font-size: 1.3rem; color: var(--ink); }
+.results-grid .rcard .price { font-weight: 700; font-size: 1.15rem; color: var(--price); }
+.results-grid .rcard .meta { color: var(--ink-2); line-height: 1.6; }
+/* ปุ่มบันทึก/เปรียบเทียบ: เฉพาะสัญลักษณ์ที่มุมขวาบนของการ์ด (ข้อความยังอ่านได้ด้วยโปรแกรมอ่านหน้าจอและป้ายชี้) */
+.results-grid .rcard-wrap { position: relative; }
+.results-grid .card-actions { position: absolute; top: 12px; right: 12px; padding: 0; border: 0; background: none; gap: 8px; }
+.results-grid .card-actions .act-btn { flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 1.15rem; box-shadow: 0 1px 4px rgba(16,24,40,.12); }
+.results-grid .card-actions .act-btn span:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.results-grid .rcard .body { padding-right: 116px; }
+@media (max-width: 700px) {
+  .results-grid .card-actions { top: 10px; right: 10px; }
+  .results-grid .card-actions .act-btn { background: rgba(255,255,255,.92); }
+  .results-grid .rcard .body { padding-right: 22px; }
+}
+@media (max-width: 700px) {
+  .results-grid .rcard { grid-template-columns: 1fr; }
+  .results-grid .rcard .cover { min-height: 0; aspect-ratio: 16 / 10; }
+}

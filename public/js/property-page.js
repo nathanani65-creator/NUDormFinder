@@ -13,7 +13,7 @@ function carouselHtml(key, images, { emptyText, size = 'lg' }) {
   carousels.set(key, { images, index: 0 });
   const multi = images.length > 1;
   return `<div class="carousel carousel-${size}" data-carousel="${key}" tabindex="0" aria-roledescription="สไลด์รูปภาพ">
-    <img class="carousel-img" src="${esc(images[0].url)}" alt="${esc(images[0].caption || images[0].category || '')}">
+    <img class="carousel-img" referrerpolicy="no-referrer" src="${esc(images[0].url)}" alt="${esc(images[0].caption || images[0].category || '')}" title="กดเพื่อดูภาพเต็ม">
     <div class="carousel-caption" ${images[0].caption || images[0].category ? '' : 'hidden'}>${esc([images[0].category, images[0].caption].filter(Boolean).join(' · '))}</div>
     ${multi ? `<button type="button" class="carousel-nav prev" data-step="-1" aria-label="รูปก่อนหน้า">‹</button>
     <button type="button" class="carousel-nav next" data-step="1" aria-label="รูปถัดไป">›</button>
@@ -48,9 +48,20 @@ function bindCarousels(root) {
     }
     const thumb = e.target.closest('[data-thumbs] button');
     if (thumb) showSlide(thumb.parentElement.dataset.thumbs, Number(thumb.dataset.i));
+    // กดที่รูปเพื่อดูภาพเต็ม (เลื่อนดูรูปอื่นของห้องเดียวกันต่อได้)
+    const img = e.target.closest('.carousel-img');
+    if (img) {
+      const c = carousels.get(img.closest('[data-carousel]').dataset.carousel);
+      openViewer(c.images, c.index);
+    }
   });
   root.addEventListener('keydown', (e) => {
     const el = e.target.closest?.('[data-carousel]');
+    if (el && e.key === 'Enter' && e.target === el) {
+      const c = carousels.get(el.dataset.carousel);
+      openViewer(c.images, c.index);
+      return;
+    }
     if (!el || !['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
     const key = el.dataset.carousel;
     showSlide(key, carousels.get(key).index + (e.key === 'ArrowRight' ? 1 : -1));
@@ -66,7 +77,7 @@ function openAllImages(title, images) {
   }
   const m = openModal(title, [...groups].map(([k, list]) => `
     <h3 style="margin:4px 0 10px">${esc(k)} <span class="muted small">(${list.length})</span></h3>
-    <div class="all-images">${list.map((im) => `<figure><button type="button" class="all-img-btn" data-idx="${images.indexOf(im)}"><img src="${esc(im.url)}" alt="${esc(im.caption || k)}" loading="lazy"></button>${im.caption ? `<figcaption>${esc(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div>`).join(''));
+    <div class="all-images">${list.map((im) => `<figure><button type="button" class="all-img-btn" data-idx="${images.indexOf(im)}"><img referrerpolicy="no-referrer" src="${esc(im.url)}" alt="${esc(im.caption || k)}" loading="lazy"></button>${im.caption ? `<figcaption>${esc(im.caption)}</figcaption>` : ''}</figure>`).join('')}</div>`).join(''));
   m.el.addEventListener('click', (e) => {
     const b = e.target.closest('.all-img-btn');
     if (b) openViewer(images, Number(b.dataset.idx));
@@ -74,7 +85,6 @@ function openAllImages(title, images) {
 }
 
 // ---------------------------------------------------------------- ส่วนต่าง ๆ ของหน้า
-const MOSAIC_MAX = 5;
 
 function galleryHtml(p) {
   const imgs = p.images;
@@ -82,21 +92,13 @@ function galleryHtml(p) {
     return `<section class="pd-gallery" aria-label="ภาพอาคาร">
       <div class="carousel carousel-lg is-empty"><span>ยังไม่มีรูปภาพอาคาร (รอตรวจสอบ)</span></div></section>`;
   }
-  const shown = imgs.slice(0, MOSAIC_MAX);
-  const rest = imgs.length - shown.length;
+  // รูปแรกเด่นด้านบน รูปอื่นเป็นแถบรูปย่อเลื่อนได้ด้านล่าง กดรูปใหญ่เพื่อดูเต็มจอ
   return `<section class="pd-gallery" aria-label="ภาพอาคาร">
-    <div class="mosaic n${Math.min(imgs.length, MOSAIC_MAX)}">
-      ${shown.map((im, i) => `<button type="button" class="mosaic-item" data-view="${i}" aria-label="เปิดดูรูปที่ ${i + 1}${im.category ? ` (${esc(im.category)})` : ''}">
-        <img src="${esc(im.url)}" alt="${esc(im.caption || im.category || '')}" loading="${i ? 'lazy' : 'eager'}">
-        ${im.category ? `<span class="mosaic-tag">${esc(im.category)}</span>` : ''}
-        ${i === shown.length - 1 && rest > 0 ? `<span class="mosaic-more">+${rest} รูป</span>` : ''}
-      </button>`).join('')}
-      <button type="button" class="btn small mosaic-all" id="allImagesBtn">ดูรูปทั้งหมด (${imgs.length})</button>
-    </div>
-    <div class="gallery-mobile">
+    <div class="gallery-main">
       ${carouselHtml('building', imgs, { emptyText: '' })}
-      ${imgs.length > 1 ? `<div class="thumbs" data-thumbs="building">${imgs.map((im, i) => `<button type="button" data-i="${i}" class="${i === 0 ? 'active' : ''}" aria-label="ดูรูปที่ ${i + 1}"><img src="${esc(im.url)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
+      ${imgs.length > 1 ? `<button type="button" class="btn small gallery-all" id="allImagesBtn">ดูรูปทั้งหมด (${imgs.length})</button>` : ''}
     </div>
+    ${imgs.length > 1 ? `<div class="thumbs gallery-thumbs" data-thumbs="building">${imgs.map((im, i) => `<button type="button" data-i="${i}" class="${i === 0 ? 'active' : ''}" aria-label="ดูรูปที่ ${i + 1}${im.category ? ` (${esc(im.category)})` : ''}"><img referrerpolicy="no-referrer" src="${esc(im.url)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
   </section>`;
 }
 
@@ -111,7 +113,7 @@ function openViewer(images, start = 0) {
   back.innerHTML = `
     <button type="button" class="viewer-close" aria-label="ปิด">✕</button>
     <button type="button" class="viewer-nav prev" aria-label="รูปก่อนหน้า">‹</button>
-    <figure><img alt=""><figcaption></figcaption></figure>
+    <figure><img alt="" referrerpolicy="no-referrer"><figcaption></figcaption></figure>
     <button type="button" class="viewer-nav next" aria-label="รูปถัดไป">›</button>`;
   const img = back.querySelector('img');
   const cap = back.querySelector('figcaption');
@@ -169,6 +171,9 @@ function roomsHtml(p) {
       </article>
     </section>`;
   }
+  if (!rooms.length) {
+    return `<section class="pd-section" id="rooms"><h2>ห้องพักและราคา</h2>${PENDING('รอตรวจสอบประเภทห้องและราคา')}</section>`;
+  }
   return `<section class="pd-section" id="rooms">
     <h2>ห้องพักและราคา</h2>
     <p class="muted" style="margin-top:-4px">มี ${rooms.length} ประเภทห้อง แต่ละประเภทแสดงรูปและรายละเอียดของห้องนั้นเท่านั้น</p>
@@ -189,17 +194,26 @@ function facilitiesHtml(p) {
   </section>`;
 }
 
+/** ค่าใช้จ่ายนอกจากค่าเช่า แสดงในกล่องราคาด้านข้าง ต่อจากราคา */
 function costsHtml(p) {
+  // เงินประกันที่เป็นข้อความ (เช่น "เท่ากับค่าเช่า 1 เดือน") ถูกเก็บไว้ในค่าใช้จ่ายอื่นขึ้นต้นว่า "เงินประกัน:"
+  const other = String(p.other_fees || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  const depositText = other.find((x) => x.startsWith('เงินประกัน:'))?.replace('เงินประกัน:', '').trim();
   const rows = [
-    ['เงินประกัน', p.deposit != null ? `${baht(p.deposit)} บาท` : ''],
     ['ค่าน้ำ', p.water_rate],
     ['ค่าไฟ', p.electric_rate],
-    ['ค่าใช้จ่ายอื่น', p.other_fees],
+    ['เงินประกัน', p.deposit != null ? `${baht(p.deposit)} บาท` : depositText],
+    ['ค่าใช้จ่ายอื่น', other.filter((x) => !x.startsWith('เงินประกัน:')).join('\n')],
+    ...(/^ค่าเช่าล่วงหน้า:/.test(p.lease_terms || '')
+      ? [['ค่าเช่าล่วงหน้า', p.lease_terms.replace(/^ค่าเช่าล่วงหน้า:\s*/, '')]]
+      : [['สัญญาเช่า', p.lease_terms]]),
   ].filter(([, v]) => v);
-  return `<section class="pd-section">
-    <h2>ค่าใช้จ่ายอื่น</h2>
-    ${rows.length ? `<dl class="facts">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : PENDING()}
-  </section>`;
+  return `<div class="side-costs">
+    <div class="side-costs-title">ค่าใช้จ่ายอื่น</div>
+    ${rows.length
+      ? rows.map(([k, v]) => `<div class="contact-row"><span class="muted">${k}</span><span style="white-space:pre-line">${esc(v)}</span></div>`).join('')
+      : '<div class="small muted">รอตรวจสอบค่าน้ำ ค่าไฟ และเงินประกัน</div>'}
+  </div>`;
 }
 
 function rulesHtml(p) {
@@ -234,31 +248,27 @@ function sideContactHtml(p) {
   const min = Math.min(...prices);
   const multiPrice = new Set(prices).size > 1;
   const row = (label, value) => `<div class="contact-row"><span class="muted">${label}</span><span>${value}</span></div>`;
-  const notFound = '<span class="muted">ยังไม่พบข้อมูล</span>';
   const tel = p.contact_phone ? `tel:${esc(p.contact_phone.replace(/[^\d+]/g, ''))}` : '';
-  const phone = p.contact_phone ? `<a data-ch="phone" href="${tel}">${esc(p.contact_phone)}</a>` : notFound;
-  const website = isUrl(p.contact_website) ? `<a data-ch="website" target="_blank" rel="noopener" href="${esc(p.contact_website)}">เปิดเว็บไซต์</a>` : notFound;
-  const facebook = isUrl(p.contact_facebook) ? `<a data-ch="facebook" target="_blank" rel="noopener" href="${esc(p.contact_facebook)}">เปิดเพจ Facebook</a>` : notFound;
+  const phone = p.contact_phone ? `<a data-ch="phone" href="${tel}">${esc(p.contact_phone)}</a>` : '';
+  const website = isUrl(p.contact_website) ? `<a data-ch="website" target="_blank" rel="noopener" href="${esc(p.contact_website)}">เปิดเว็บไซต์</a>` : '';
+  const facebook = isUrl(p.contact_facebook) ? `<a data-ch="facebook" target="_blank" rel="noopener" href="${esc(p.contact_facebook)}">เปิดเพจ Facebook</a>` : '';
   return `<div class="side-part side-contact" id="contact">
-    <div class="price-line"><span class="muted">${multiPrice ? 'ราคาเริ่มต้น' : 'ค่าเช่า'}</span>
-      <span class="box-price">฿${baht(min)}</span><span class="muted">/ เดือน</span></div>
+    ${prices.length ? `<div class="price-line"><span class="muted">${multiPrice ? 'ราคาเริ่มต้น' : 'ค่าเช่า'}</span>
+      <span class="box-price">฿${baht(min)}</span><span class="muted">/ เดือน</span></div>` : PENDING('รอตรวจสอบราคา')}
     ${multiPrice ? `<div class="small muted">มี ${p.rooms.length} ประเภทห้อง ราคาต่างกันตามประเภท</div>` : ''}
+    ${costsHtml(p)}
     <div class="side-actions">
       <a class="btn primary" href="#rooms">ดูห้องพัก</a>
       ${tel ? `<a class="btn" data-ch="phone" href="${tel}">โทรติดต่อ</a>` : '<a class="btn" href="#contacts">ติดต่อที่พัก</a>'}
     </div>
     <div class="contact-rows" id="contacts">
-      ${row('โทรศัพท์', phone)}
+      ${phone ? row('โทรศัพท์', phone) : ''}
       ${p.contact_line ? row('LINE', `<span data-ch="line">${esc(p.contact_line)}</span>`) : ''}
-      ${row('Facebook', facebook)}
-      ${row('เว็บไซต์', website)}
+      ${facebook ? row('Facebook', facebook) : ''}
+      ${website ? row('เว็บไซต์', website) : ''}
       ${p.contact_name ? row('ผู้ติดต่อ', esc(p.contact_name)) : ''}
+      ${phone || p.contact_line || facebook || website ? '' : '<div class="small muted" style="padding:6px 0">รอตรวจสอบช่องทางติดต่อ</div>'}
     </div>
-    <div class="side-verify small">
-      <span class="muted">ตรวจสอบล่าสุด</span> ${freshnessChip(p.verified_at)}
-      <div class="muted" style="margin-top:4px">แหล่งข้อมูล: ${esc(p.data_source || '-')}</div>
-    </div>
-    <button class="btn small danger" id="reportBtn" style="margin-top:10px;width:100%">แจ้งข้อมูลไม่ถูกต้อง</button>
   </div>`;
 }
 
@@ -272,11 +282,22 @@ function sideLocationHtml(p) {
       <span class="nb-name">${esc(n.name)}<span class="small muted">${esc(n.category)}${n.source ? ` · ตรวจสอบจาก ${esc(n.source)}` : ''}</span></span>
       <span class="nb-dist">${n.display_distance_m != null ? `${distanceText(n.display_distance_m)}<span class="small muted">${esc(n.display_distance_type || '')}</span>` : '<span class="small muted">รอตรวจสอบ</span>'}</span>
     </li>`;
+  const moreBtn = p.nearby.length > NEARBY_SHOWN
+    ? `<button type="button" class="link-btn" id="moreNearby">ดูสถานที่ใกล้เคียงทั้งหมด (${p.nearby.length})</button>` : '';
+  // รายการที่ยังไม่เผยแพร่อาจยังไม่ได้ปักหมุด (เช่น นำเข้าจากชีต) — ผู้ดูแลเห็นหน้านี้ได้
+  if (p.lat == null || p.lng == null) {
+    return `<div class="side-part side-location" id="location">
+      <div class="side-address"><span>${esc(p.address)}</span></div>
+      ${PENDING('ยังไม่ได้ปักหมุดตำแหน่ง จึงยังไม่มีแผนที่และระยะห่างจากประตู')}
+      <h3 class="side-title">สถานที่ใกล้เคียง</h3>
+      ${p.nearby.length ? `<ul class="nearby-list">${p.nearby.map(nearbyItem).join('')}</ul>${moreBtn}` : PENDING('รอตรวจสอบสถานที่ใกล้เคียง')}
+    </div>`;
+  }
   return `<div class="side-part side-location" id="location">
     <div id="map" class="map side-map"></div>
     <div class="side-address">
       <span>${esc(p.address)}</span>
-      <a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}">Google Maps</a>
+      <a target="_blank" rel="noopener" href="${esc(p.map_url || `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`)}">Google Maps</a>
     </div>
     <a class="btn small" style="width:100%" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}">เปิดเส้นทางใน Google Maps</a>
 
@@ -288,7 +309,7 @@ function sideLocationHtml(p) {
 
     <h3 class="side-title">สถานที่ใกล้เคียง</h3>
     ${p.nearby.length ? `<ul class="nearby-list">${p.nearby.map(nearbyItem).join('')}</ul>
-      ${p.nearby.length > NEARBY_SHOWN ? `<button type="button" class="link-btn" id="moreNearby">ดูสถานที่ใกล้เคียงทั้งหมด (${p.nearby.length})</button>` : ''}`
+      ${moreBtn}`
       : PENDING('รอตรวจสอบสถานที่ใกล้เคียง')}
   </div>`;
 }
@@ -317,13 +338,12 @@ function render(p) {
       <div class="pd-main">
         ${roomsHtml(p)}
         ${facilitiesHtml(p)}
-        ${costsHtml(p)}
         ${rulesHtml(p)}
         ${p.description ? `<section class="pd-section"><h2>รายละเอียดเพิ่มเติม</h2><p style="white-space:pre-line;margin:0">${esc(p.description)}</p></section>` : ''}
       </div>
     </div>
     <div class="mobile-bar">
-      <div><div class="small muted">${new Set(prices).size > 1 ? 'ราคาเริ่มต้น' : 'ค่าเช่า'}</div><b>${baht(Math.min(...prices))} บาท/เดือน</b></div>
+      <div><div class="small muted">${new Set(prices).size > 1 ? 'ราคาเริ่มต้น' : 'ค่าเช่า'}</div><b>${prices.length ? `${baht(Math.min(...prices))} บาท/เดือน` : 'รอตรวจสอบราคา'}</b></div>
       ${p.contact_phone ? `<a class="btn primary" data-ch="phone" href="tel:${esc(p.contact_phone.replace(/[^\d+]/g, ''))}">โทร</a>` : ''}
       <a class="btn" href="#contact">ช่องทางติดต่อ</a>
     </div>`;
@@ -332,22 +352,20 @@ function render(p) {
   bindCarousels(page);
   enableCompareBar();
   document.getElementById('allImagesBtn')?.addEventListener('click', () => openAllImages('ภาพอาคารทั้งหมด', p.images));
-  page.querySelectorAll('.mosaic-item').forEach((b) => b.addEventListener('click', () => openViewer(p.images, Number(b.dataset.view))));
   page.addEventListener('click', (e) => {
     const a = e.target.closest('[data-ch]');
     if (a) track('contact_click', { property_id: p.id, channel: a.dataset.ch });
   });
-  document.getElementById('reportBtn').addEventListener('click', () => reportDialog(p));
   document.getElementById('moreNearby')?.addEventListener('click', (e) => {
     document.querySelectorAll('.nearby-list li.more').forEach((li) => li.classList.remove('hidden'));
     e.target.remove();
   });
-  renderMap(p);
+  if (p.lat != null && p.lng != null) renderMap(p);
 }
 
 function renderMap(p) {
   const map = createMap('map', { center: [p.lat, p.lng], zoom: 16, scrollWheelZoom: false });
-  const home = L.marker([p.lat, p.lng], { icon: propIcon({ price_min: Math.min(...p.rooms.map((r) => r.price)) }, true), zIndexOffset: 800 })
+  const home = L.marker([p.lat, p.lng], { icon: propIcon({ price_min: p.rooms.length ? Math.min(...p.rooms.map((r) => r.price)) : null }, true), zIndexOffset: 800 })
     .addTo(map).bindTooltip(p.name);
   const points = [[p.lat, p.lng]];
   const placeIcon = L.divIcon({ className: '', html: '<div class="place-pin"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
@@ -379,28 +397,6 @@ function renderMap(p) {
     li.addEventListener('click', () => { map.panTo(m.getLatLng()); m.openTooltip(); });
   });
   home.openTooltip();
-}
-
-function reportDialog(p) {
-  const reasons = ['ราคาไม่ถูกต้อง', 'ห้องเต็ม/ปิดกิจการแล้ว', 'ตำแหน่งบนแผนที่ผิด', 'ช่องทางติดต่อใช้ไม่ได้', 'รูปภาพไม่ตรงกับความจริง', 'อื่น ๆ'];
-  const m = openModal('แจ้งข้อมูลไม่ถูกต้อง', `
-    <form id="reportForm">
-      <p class="muted small" style="margin-top:0">ผู้ดูแลระบบจะตรวจสอบและแก้ไขข้อมูลของ "${esc(p.name)}"</p>
-      <div class="field"><label>เหตุผล</label>${reasons.map((r) => `<label class="check"><input type="radio" name="reason" value="${r}" required> ${r}</label>`).join('')}</div>
-      <div class="field"><label for="detail">รายละเอียดเพิ่มเติม</label><textarea id="detail" name="detail" rows="3"></textarea></div>
-      <button class="btn primary">ส่งรายงาน</button>
-    </form>`);
-  m.el.querySelector('form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    try {
-      await api('/api/reports', { method: 'POST', body: { property_id: p.id, reason: fd.get('reason'), detail: fd.get('detail') } });
-      m.close();
-      toast('ขอบคุณ ส่งรายงานเรียบร้อยแล้ว');
-    } catch (err) {
-      toast(err.message);
-    }
-  });
 }
 
 api(`/api/properties/${propertyId}`)

@@ -67,6 +67,17 @@ function placeholders(list) {
   return list.map(() => '?').join(',');
 }
 
+/**
+ * เงื่อนไขที่พักที่ผู้ใช้ทั่วไปเห็น: เผยแพร่แล้ว และมีราคาห้องหรือรูปอย่างน้อยหนึ่งอย่าง
+ * (ที่พักจากชีตที่ยังมีแค่ชื่อกับที่อยู่ ไม่แสดงจนกว่าจะเติมข้อมูล)
+ * ตั้ง SHOW_INCOMPLETE_LISTINGS=true เพื่อแสดงทุกรายการที่เผยแพร่แล้ว
+ */
+function publicWhere(a = 'p') {
+  if (process.env.SHOW_INCOMPLETE_LISTINGS === 'true') return `${a}.status = 'published'`;
+  return `${a}.status = 'published' AND (EXISTS (SELECT 1 FROM room_types vr WHERE vr.property_id = ${a}.id)
+    OR EXISTS (SELECT 1 FROM property_images vi WHERE vi.property_id = ${a}.id))`;
+}
+
 // ตารางหลักของการค้นหา (ใช้ร่วมกันระหว่างรายการผลลัพธ์และการนับจำนวน)
 const BASE_FROM = `FROM properties p
        JOIN property_types t ON t.id = p.type_id
@@ -91,6 +102,7 @@ const DISTANCE_BUCKETS = [500, 1000, 2000];
  * ใช้ทั้งตอนกรองระยะทางและตอนแสดงระยะบนการ์ด เพื่อให้ตัวเลขตรงกัน
  */
 function pickNearest(distances, selectedGates) {
+  if (!distances.length) return null;
   const pool = distances.filter((d) => (selectedGates.size ? selectedGates.has(d.gate_id) : d.related));
   return (pool.length ? pool : distances).reduce((a, b) => (a.straight_line_m <= b.straight_line_m ? a : b));
 }
@@ -106,7 +118,8 @@ function referenceDistances(db, gateIds) {
   }
   const selected = new Set(gateIds);
   const out = new Map();
-  for (const p of db.prepare("SELECT id, lat, lng FROM properties WHERE status = 'published'").all()) {
+  // ที่พักที่ยังไม่มีพิกัด (นำเข้าจากชีต) ไม่มีระยะ จึงไม่ผ่านตัวกรองระยะทาง
+  for (const p of db.prepare(`SELECT id, lat, lng FROM properties p WHERE ${publicWhere()} AND lat IS NOT NULL AND lng IS NOT NULL`).all()) {
     const rel = related.get(p.id) || new Set();
     const distances = gates.map((g) => ({
       gate_id: g.id,
@@ -190,7 +203,7 @@ function roomExists({ min = null, max = null, availableOnly = false }, params) {
  */
 function buildWhere(filters, { exclude = [] } = {}) {
   const skip = new Set(exclude);
-  const where = ["p.status = 'published'"];
+  const where = [publicWhere()];
   const params = [];
 
   if (filters.types.length && !skip.has('type')) {
@@ -343,7 +356,8 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
 
   const results = rows.map((r) => {
     const related = linked.get(r.id) || new Set();
-    const distances = gates.map((g) => ({
+    // ที่พักที่ยังไม่ปักหมุด (ยังไม่เผยแพร่) ไม่มีระยะถึงประตู
+    const distances = r.lat == null || r.lng == null ? [] : gates.map((g) => ({
       gate_id: g.id,
       gate_name: g.short_name,
       related: related.has(g.id),
@@ -352,7 +366,7 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
     const nearest = pickNearest(distances, selectedGates);
     return {
       ...r,
-      gates: distances.filter((d) => d.related).map((d) => ({ id: d.gate_id, name: d.gate_name })),
+      gates: gates.filter((g) => related.has(g.id)).map((g) => ({ id: g.id, name: g.short_name })),
       distances,
       nearest_gate: nearest,
       amenities: amenityMap.get(r.id) || [],
@@ -364,9 +378,9 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
   if (sort === 'price_asc') results.sort(byNum('price_min'));
   else if (sort === 'price_desc') results.sort((a, b) => (b.price_max ?? -1) - (a.price_max ?? -1));
   else if (sort === 'verified') results.sort((a, b) => String(b.verified_at || '').localeCompare(String(a.verified_at || '')));
-  else results.sort((a, b) => a.nearest_gate.straight_line_m - b.nearest_gate.straight_line_m);
+  else results.sort((a, b) => (a.nearest_gate?.straight_line_m ?? Infinity) - (b.nearest_gate?.straight_line_m ?? Infinity));
 
   return results;
 }
 
-module.exports = { parseFilters, searchProperties, computeFacets, buildWhere, decorate, haversineMeters, PRICE_BUCKETS, DISTANCE_BUCKETS };
+module.exports = { publicWhere, parseFilters, searchProperties, computeFacets, buildWhere, decorate, haversineMeters, PRICE_BUCKETS, DISTANCE_BUCKETS };

@@ -171,6 +171,6 @@ test('ย้ายฐานข้อมูลเดิมที่ยังไ�
   migrated.prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('new@test.local', 'ใหม่', 'x', 'member')").run();
   assert.deepEqual(migrated.prepare('SELECT email, role FROM users ORDER BY id').all().map((r) => [r.email, r.role]),
     [['old@test.local', 'provider'], ['new@test.local', 'member']]);
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 3);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 4);
   migrated.close();
 });

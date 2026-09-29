@@ -102,8 +102,8 @@ CREATE TABLE IF NOT EXISTS properties (
   type_id          INTEGER NOT NULL REFERENCES property_types(id),
   soi_id           INTEGER REFERENCES sois(id) ON DELETE SET NULL,
   address          TEXT NOT NULL,
-  lat              REAL NOT NULL,
-  lng              REAL NOT NULL,
+  lat              REAL,          -- ว่างได้เฉพาะรายการที่ยังไม่เผยแพร่ (เช่น นำเข้าจากชีตแต่ยังไม่ปักหมุด)
+  lng              REAL,
   description      TEXT,
   deposit          INTEGER,
   water_rate       TEXT,
@@ -224,6 +224,8 @@ const MIGRATIONS = {
   },
   properties: {
     contact_website: 'TEXT',
+    import_key: 'TEXT',
+    map_url: 'TEXT',      // ลิงก์สถานที่บน Google Maps (แสดงชื่อหอ) ถ้าไม่มีจะเปิดจากพิกัด   // รหัสจากชีตฐานข้อมูล (property_id เช่น PROP-001) ใช้ตอนนำเข้าซ้ำ
   },
   room_types: {
     features: 'TEXT',     // สิ่งของ/อุปกรณ์ภายในห้องประเภทนี้ บรรทัดละรายการ
@@ -310,6 +312,32 @@ function migrate(db) {
     }
     db.exec('PRAGMA user_version = 3');
   }
+  {
+    // ตรวจจากโครงสร้างตารางทุกครั้ง (ไม่ดูเลขเวอร์ชัน) จึงซ่อมฐานข้อมูลที่ขึ้นเวอร์ชัน 4 แล้วแต่ยังไม่ได้สร้างตารางใหม่ได้
+    // เดิมบังคับพิกัด (NOT NULL) ทำให้นำเข้าที่พักที่ยังไม่ได้ปักหมุดไม่ได้
+    // สร้างตารางใหม่จากคำสั่งเดิมโดยเอา NOT NULL ของ lat/lng ออก (การเผยแพร่ยังบังคับพิกัดที่ API)
+    const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'properties'").get().sql;
+    const next = sql.replace(/\b(lat|lng)(\s+)REAL NOT NULL/g, '$1$2REAL');
+    if (next !== sql) {
+      db.exec('PRAGMA foreign_keys = OFF');
+      try {
+        tx(db, () => {
+          const cols = db.prepare('PRAGMA table_info(properties)').all().map((c) => c.name).join(', ');
+          db.exec(next.replace(/CREATE TABLE (IF NOT EXISTS )?"?properties"?/, 'CREATE TABLE properties_v4'));
+          db.exec(`INSERT INTO properties_v4 (${cols}) SELECT ${cols} FROM properties`);
+          db.exec('DROP TABLE properties');
+          db.exec('ALTER TABLE properties_v4 RENAME TO properties');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_properties_status ON properties(status)');
+          const broken = db.prepare('PRAGMA foreign_key_check').all();
+          if (broken.length) throw new Error('foreign key check failed after properties migration');
+        });
+      } finally {
+        db.exec('PRAGMA foreign_keys = ON');
+      }
+    }
+    if (version < 4) db.exec('PRAGMA user_version = 4');
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_properties_import_key ON properties(import_key)');
 }
 
 function open(file = DB_PATH) {
@@ -319,16 +347,21 @@ function open(file = DB_PATH) {
   return db;
 }
 
-// รันหลายคำสั่งใน transaction เดียว
+// รันหลายคำสั่งใน transaction เดียว (ใช้ SAVEPOINT จึงซ้อนกันได้ เช่น นำเข้าหลายที่พักใน transaction เดียว)
+let txDepth = 0;
 function tx(db, fn) {
-  db.exec('BEGIN');
+  const name = `tx_${++txDepth}`;
+  db.exec(`SAVEPOINT ${name}`);
   try {
     const result = fn();
-    db.exec('COMMIT');
+    db.exec(`RELEASE ${name}`);
     return result;
   } catch (err) {
-    db.exec('ROLLBACK');
+    db.exec(`ROLLBACK TO ${name}`);
+    db.exec(`RELEASE ${name}`);
     throw err;
+  } finally {
+    txDepth--;
   }
 }
 

@@ -44,8 +44,8 @@
           <a class="btn primary" href="/search">ค้นหาที่พัก</a></div>`;
         return;
       }
-      const minPrice = (p) => Math.min(...p.rooms.map((r) => r.price));
-      const cheapest = Math.min(...list.map(minPrice));
+      const minPrice = (p) => (p.rooms.length ? Math.min(...p.rooms.map((r) => r.price)) : null);
+      const cheapest = Math.min(...list.map(minPrice).filter((x) => x != null));
       const nearestGate = (p) => [...p.distances].sort((a, b) => a.straight_line_m - b.straight_line_m)[0];
       // สิ่งอำนวยความสะดวกของหอพักที่ปรากฏในที่พักใดที่หนึ่ง (ไม่มีเครื่องหมาย = ไม่ได้ระบุ ไม่ได้แปลว่าไม่มี)
       const facilities = new Map();
@@ -66,7 +66,7 @@
           <table class="cmp-table">
             <thead><tr><th scope="col" class="cmp-corner"></th>
               ${list.map((p) => `<th scope="col">
-                <div class="cmp-cover">${p.images[0] ? `<img src="${esc(p.images[0].url)}" alt="">` : esc(p.type_name)}</div>
+                <div class="cmp-cover">${p.images[0] ? `<img referrerpolicy="no-referrer" src="${esc(p.images[0].url)}" alt="">` : esc(p.type_name)}</div>
                 <a class="cmp-name" href="/property?id=${p.id}">${esc(p.name)}</a>
                 <div class="cmp-head-actions">
                   <button type="button" class="btn small" data-save="${p.id}"><span aria-hidden="true">♡</span> <span>บันทึกที่พัก</span></button>
@@ -77,10 +77,10 @@
             <tbody>
               ${section('ภาพรวม')}
               ${row('ประเภท', (p) => esc(p.type_name))}
-              ${row('ราคาเริ่มต้น', (p) => `<span class="cmp-price ${minPrice(p) === cheapest && list.length > 1 ? 'best' : ''}">${baht(minPrice(p))} บาท/เดือน</span>${minPrice(p) === cheapest && list.length > 1 ? ' <span class="chip ok">ถูกที่สุด</span>' : ''}`)}
+              ${row('ราคาเริ่มต้น', (p) => minPrice(p) == null ? '<span class="muted">รอตรวจสอบราคา</span>' : `<span class="cmp-price ${minPrice(p) === cheapest && list.length > 1 ? 'best' : ''}">${baht(minPrice(p))} บาท/เดือน</span>${minPrice(p) === cheapest && list.length > 1 ? ' <span class="chip ok">ถูกที่สุด</span>' : ''}`)}
               ${section('ทำเล')}
               ${row('ซอย / โซน', (p) => [p.soi_name, p.zone_name].filter(Boolean).map(esc).join('<br>') || dash)}
-              ${row('ประตูที่ใกล้ที่สุด', (p) => { const g = nearestGate(p); return `${esc(g.gate_name)} · ${distanceText(g.straight_line_m)} <span class="small muted">(เส้นตรง)</span>`; })}
+              ${row('ประตูที่ใกล้ที่สุด', (p) => { const g = nearestGate(p); if (!g) return '<span class="muted">ยังไม่ได้ปักหมุด</span>'; return `${esc(g.gate_name)} · ${distanceText(g.straight_line_m)} <span class="small muted">(เส้นตรง)</span>`; })}
               ${row('ที่อยู่', (p) => esc(p.address))}
               ${row('สถานที่ใกล้เคียง', (p) => p.nearby.length ? `<ul class="cmp-list">${p.nearby.slice(0, 4).map((n) => `<li>${esc(n.name)}${n.display_distance_m != null ? ` · ${distanceText(n.display_distance_m)}` : ''}</li>`).join('')}</ul>` : '<span class="muted">รอตรวจสอบ</span>')}
               ${section('ห้องพักและราคา')}
@@ -99,7 +99,6 @@
               ${row('LINE', (p) => esc(p.contact_line) || dash)}
               ${row('Facebook', (p) => (isUrl(p.contact_facebook) ? `<a target="_blank" rel="noopener" href="${esc(p.contact_facebook)}">เปิดเพจ</a>` : dash))}
               ${row('เว็บไซต์', (p) => (isUrl(p.contact_website) ? `<a target="_blank" rel="noopener" href="${esc(p.contact_website)}">เปิดเว็บไซต์</a>` : dash))}
-              ${row('ตรวจสอบล่าสุด', (p) => freshnessChip(p.verified_at))}
             </tbody>
           </table>
         </div>

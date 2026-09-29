@@ -27,6 +27,9 @@ function parseCookies(header = '') {
   return out;
 }
 
+// เว็บจริงใช้ HTTPS: ส่งคุกกี้เข้าสู่ระบบเฉพาะผ่านการเชื่อมต่อที่เข้ารหัส
+const SECURE = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+
 function createSession(db, res, userId) {
   const token = crypto.randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + SESSION_DAYS * 86400000);
@@ -37,7 +40,7 @@ function createSession(db, res, userId) {
   );
   res.setHeader(
     'Set-Cookie',
-    `${COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Expires=${expires.toUTCString()}`
+    `${COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Expires=${expires.toUTCString()}${SECURE}`
   );
 }
 

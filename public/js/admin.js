@@ -10,6 +10,7 @@ const TABS = [
   ['zones', 'โซน'],
   ['sois', 'ซอย'],
   ['types', 'ประเภท / สิ่งอำนวยความสะดวก'],
+  ['import', 'นำเข้าจากชีต'],
   ['usage', 'ข้อมูลการใช้งาน'],
 ];
 
@@ -45,7 +46,7 @@ async function refresh() {
 function renderTab(queue) {
   const host = document.getElementById('tab');
   host.innerHTML = '<p class="muted">กำลังโหลด…</p>';
-  const fn = { queue: tabQueue, properties: tabProperties, gates: tabGates, zones: tabZones, sois: tabSois, types: tabTypes, usage: tabUsage }[currentTab];
+  const fn = { queue: tabQueue, properties: tabProperties, gates: tabGates, zones: tabZones, sois: tabSois, types: tabTypes, import: tabImport, usage: tabUsage }[currentTab];
   fn(host, queue).catch((err) => (host.innerHTML = `<div class="notice error">${esc(err.message)}</div>`));
 }
 
@@ -368,6 +369,51 @@ async function tabUsage(host) {
     <code>view_property</code> และ <code>contact_click</code> พร้อมเวลาระดับมิลลิวินาที ใช้คำนวณระยะเวลาทำภารกิจและอัตราความสำเร็จ เช่น
     เวลาจากการค้นหาครั้งแรกจนถึงการเปิดดูที่พักที่ตรงเงื่อนไข</p>
     <a class="btn primary" href="/api/admin/events.csv">ดาวน์โหลด CSV</a>`;
+}
+
+// ================================================================ นำเข้าจากชีต
+async function tabImport(host) {
+  host.innerHTML = `<h2>นำเข้าที่พักจากชีตฐานข้อมูล</h2>
+    <p>ใน Google Sheets เลือก <b>ไฟล์ → ดาวน์โหลด → Microsoft Excel (.xlsx)</b> แล้วอัปโหลดที่นี่
+    ที่พักจากชีตเผยแพร่ทันที รายการเดิมอัปเดตตามชีต (ยกเว้นที่ซ่อนหรือไม่อนุมัติไว้) และสำรองฐานข้อมูลก่อนนำเข้าทุกครั้ง</p>
+    <form id="importForm" class="card" style="padding:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input type="file" name="file" accept=".xlsx" required>
+      <button type="button" class="btn" data-mode="dry">ตรวจก่อน (ยังไม่บันทึก)</button>
+      <button type="button" class="btn primary" data-mode="run">นำเข้าและเผยแพร่</button>
+    </form>
+    <div id="importResult" style="margin-top:16px"></div>`;
+  const form = host.querySelector('#importForm');
+  const out = host.querySelector('#importResult');
+  form.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (!b) return;
+    const file = form.elements.file.files[0];
+    if (!file) return toast('กรุณาเลือกไฟล์ .xlsx');
+    const dry = b.dataset.mode === 'dry';
+    if (!dry && !confirm('นำเข้าและเผยแพร่ข้อมูลจากไฟล์นี้?')) return;
+    form.querySelectorAll('button').forEach((x) => (x.disabled = true));
+    out.innerHTML = '<p class="muted">กำลังอ่านไฟล์…</p>';
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/admin/import${dry ? '?dry_run=1' : ''}`, { method: 'POST', body: fd });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error || 'นำเข้าไม่สำเร็จ');
+      const list = (items, fn) => (items.length ? `<ul>${items.map((x) => `<li>${fn(x)}</li>`).join('')}</ul>` : '<p class="muted small">-</p>');
+      out.innerHTML = `<div class="notice ${dry ? '' : 'ok'}">${dry ? 'ผลการตรวจ (ยังไม่ได้บันทึก)' : `นำเข้าเรียบร้อย — สำรองฐานข้อมูลไว้ที่ ${esc(r.backup || '-')}`}</div>
+        <p>ใหม่ <b>${r.created}</b> · อัปเดต <b>${r.updated}</b> · ข้ามเพราะซ่อน/ไม่อนุมัติ ${r.skipped_hidden} · ไม่อยู่ในขอบเขต ${r.out_of_scope}
+        ${r.errors.length ? ` · <span class="bad">ผิดพลาด ${r.errors.length}</span>` : ''}</p>
+        <h3>ข้อมูลครบ (${r.complete.length})</h3>${list(r.complete, (x) => `${esc(x.key)} ${esc(x.name)}`)}
+        <h3>มีข้อมูลบางส่วน (${r.partial.length})</h3>${list(r.partial, (x) => `${esc(x.key)} ${esc(x.name)} <span class="muted small">ยังขาด: ${esc(x.missing.join(', '))}</span>`)}
+        <p class="muted">อีก ${r.bare} รายการมีแค่ชื่อและที่อยู่</p>
+        <h3>ข้อสังเกต (${r.warnings.length})</h3>${list(r.warnings, esc)}
+        ${r.errors.length ? `<h3>ผิดพลาด</h3>${list(r.errors, (x) => `${esc(x.key)}: ${esc(x.error)}`)}` : ''}`;
+    } catch (err) {
+      out.innerHTML = `<div class="notice error">${esc(err.message)}</div>`;
+    } finally {
+      form.querySelectorAll('button').forEach((x) => (x.disabled = false));
+    }
+  });
 }
 
 // ================================================================ เริ่มต้น

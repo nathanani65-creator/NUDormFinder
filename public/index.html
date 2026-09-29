@@ -128,6 +128,7 @@
     function drawProperties(results) {
       propLayer.clearLayers();
       for (const p of results) {
+        if (p.lat == null || p.lng == null) continue; // ยังไม่ปักหมุด
         L.marker([p.lat, p.lng], { icon: propIcon(p) })
           .bindPopup(`<b>${esc(p.name)}</b><br>${priceRange(p.price_min, p.price_max)}<br><a href="/property?id=${p.id}">ดูรายละเอียด</a>`)
           .addTo(propLayer);

@@ -84,14 +84,21 @@ const SAMPLES = [
   ['บ้านเช่าประตูหก (สมมติ)', 'house', 'west1', [6], -0.0010, -0.0016, [['ทาวน์เฮาส์ 2 ชั้น', 7000, 110]], ['aircon', 'parking_car', 'parking_motorbike', 'furnished', 'pets']],
 ];
 
-function seed(db) {
+/**
+ * ใส่ข้อมูลตั้งต้น: บัญชีผู้ดูแล ประตู โซน ซอย ประเภทที่พัก
+ * samples = true ใส่บัญชีผู้ประกอบการตัวอย่างและที่พักสมมติ 14 รายการด้วย (ใช้ตอนพัฒนา/ทดสอบ)
+ * บนเว็บจริงใช้ samples = false แล้วนำเข้าที่พักจริงจากชีตในหน้าผู้ดูแล
+ */
+function seed(db, { samples = true } = {}) {
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@nudorm.local';
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin1234';
   const demoProviderPassword = 'provider1234';
 
   const ids = tx(db, () => {
     db.prepare("INSERT INTO users (email, name, password_hash, role) VALUES (?, 'ผู้ดูแลระบบ', ?, 'admin')").run(adminEmail, hashPassword(adminPassword));
-    db.prepare("INSERT INTO users (email, name, phone, password_hash, role) VALUES ('provider@nudorm.local', 'ผู้ประกอบการตัวอย่าง', '080-000-0000', ?, 'provider')").run(hashPassword(demoProviderPassword));
+    if (samples) {
+      db.prepare("INSERT INTO users (email, name, phone, password_hash, role) VALUES ('provider@nudorm.local', 'ผู้ประกอบการตัวอย่าง', '080-000-0000', ?, 'provider')").run(hashPassword(demoProviderPassword));
+    }
 
     const gateId = {};
     GATES.forEach((g, i) => {
@@ -108,7 +115,7 @@ function seed(db) {
       for (const g of z.gates) db.prepare('INSERT INTO zone_gates (zone_id, gate_id) VALUES (?, ?)').run(zoneId[z.key], gateId[g]);
     }
     const soiId = {};
-    for (const s of SOIS) {
+    for (const s of SOIS.filter((x) => samples || !x.name.includes('(ตัวอย่าง)'))) {
       soiId[s.key] = Number(db.prepare('INSERT INTO sois (name, zone_id, description) VALUES (?, ?, ?)').run(s.name, zoneId[s.zone], s.desc).lastInsertRowid);
       for (const g of s.gates) db.prepare('INSERT INTO soi_gates (soi_id, gate_id) VALUES (?, ?)').run(soiId[s.key], gateId[g]);
     }
@@ -119,6 +126,11 @@ function seed(db) {
     const typeId = Object.fromEntries(db.prepare('SELECT code, id FROM property_types').all().map((t) => [t.code, t.id]));
     return { gateId, soiId, typeId, adminId };
   });
+
+  if (!samples) {
+    console.log(`ผู้ดูแลระบบ: ${adminEmail} (ไม่ใส่ที่พักสมมติ — นำเข้าที่พักจริงจากหน้าผู้ดูแล → นำเข้าจากชีต)`);
+    return;
+  }
 
   // createProperty เปิด transaction ของตัวเอง จึงเรียกหลังจากข้อมูลอ้างอิงถูก COMMIT แล้ว
   const byGate = Object.fromEntries(GATES.map((g) => [g.key, g]));

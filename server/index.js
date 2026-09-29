@@ -5,16 +5,23 @@ const express = require('express');
 const multer = require('multer');
 
 const { open, tx } = require('./db');
-const { parseFilters, searchProperties, computeFacets, decorate } = require('./search');
+const { publicWhere, parseFilters, searchProperties, computeFacets, decorate } = require('./search');
 const props = require('./properties');
 const auth = require('./auth');
 const { seed } = require('./seed');
 
+const fs = require('node:fs');
+const { importWorkbook, missingForPublish } = require('./import-sheet');
+
 const PORT = Number(process.env.PORT) || 3000;
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+// บนโฮสต์ให้ชี้ไปที่ดิสก์ถาวร (เช่น Railway Volume) ไม่เช่นนั้นรูปที่อัปโหลดจะหายเมื่อ deploy ใหม่
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
+const PRODUCTION = process.env.NODE_ENV === 'production';
 
 function createApp(db) {
   const app = express();
+  app.set('trust proxy', 1); // อยู่หลัง HTTPS proxy ของโฮสต์
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   app.use(express.json({ limit: '1mb' }));
   app.use(auth.loadUser(db));
 
@@ -23,6 +30,7 @@ function createApp(db) {
   const member = auth.requireRole('member');
   const MAX_COMPARE = 3;
   const idParam = (req) => parseInt(req.params.id, 10);
+  const isPublic = (id) => !!db.prepare(`SELECT 1 FROM properties p WHERE p.id = ? AND ${publicWhere()}`).get(id);
 
   // ---------------------------------------------------------------- ข้อมูลอ้างอิง
   app.get('/api/meta', (_req, res) => {
@@ -32,7 +40,7 @@ function createApp(db) {
     const counts = db
       .prepare(
         `SELECT pg.gate_id, COUNT(*) AS n FROM property_gates pg
-         JOIN properties p ON p.id = pg.property_id AND p.status = 'published' GROUP BY pg.gate_id`
+         JOIN properties p ON p.id = pg.property_id AND ${publicWhere()} GROUP BY pg.gate_id`
       )
       .all();
     const countMap = new Map(counts.map((c) => [c.gate_id, c.n]));
@@ -76,7 +84,7 @@ function createApp(db) {
                 (SELECT url FROM property_images WHERE property_id = p.id ORDER BY room_type_id IS NOT NULL, sort_order, id LIMIT 1) AS cover
          FROM properties p JOIN property_types t ON t.id = p.type_id
          LEFT JOIN sois s ON s.id = p.soi_id LEFT JOIN zones z ON z.id = s.zone_id
-         WHERE p.status = 'published' ORDER BY p.verified_at DESC LIMIT 6`
+         WHERE ${publicWhere()} ORDER BY p.verified_at DESC LIMIT 6`
       )
       .all();
     res.json(rows.length ? decorate(db, rows, { gates: [], sort: 'verified' }) : []);
@@ -85,7 +93,7 @@ function createApp(db) {
   app.get('/api/properties/:id', (req, res) => {
     const p = props.getProperty(db, idParam(req));
     const canSee =
-      p && (p.status === 'published' || req.user?.role === 'admin' || (req.user && req.user.id === p.owner_id));
+      p && (isPublic(p.id) || req.user?.role === 'admin' || (req.user && req.user.id === p.owner_id));
     if (!canSee) return res.status(404).json({ error: 'ไม่พบที่พัก' });
     delete p.owner_id;
     delete p.verified_by;
@@ -97,7 +105,7 @@ function createApp(db) {
     const reason = String(req.body.reason || '').trim().slice(0, 100);
     const detail = String(req.body.detail || '').trim().slice(0, 1000);
     if (!reason) return res.status(400).json({ error: 'กรุณาเลือกเหตุผล' });
-    if (!db.prepare("SELECT 1 FROM properties WHERE id = ? AND status = 'published'").get(propertyId)) {
+    if (!isPublic(propertyId)) {
       return res.status(404).json({ error: 'ไม่พบที่พัก' });
     }
     db.prepare('INSERT INTO reports (property_id, reason, detail) VALUES (?, ?, ?)').run(propertyId, reason, detail);
@@ -161,7 +169,7 @@ function createApp(db) {
   const publishedIds = (ids) => {
     if (!ids.length) return [];
     const ok = new Set(
-      db.prepare(`SELECT id FROM properties WHERE status = 'published' AND id IN (${ids.map(() => '?').join(',')})`).all(...ids).map((r) => r.id)
+      db.prepare(`SELECT id FROM properties p WHERE ${publicWhere()} AND id IN (${ids.map(() => '?').join(',')})`).all(...ids).map((r) => r.id)
     );
     return ids.filter((id) => ok.has(id));
   };
@@ -384,6 +392,16 @@ function createApp(db) {
     const note = String(req.body.note || '').trim().slice(0, 500) || null;
     if (!['published', 'rejected', 'hidden'].includes(status)) return res.status(400).json({ error: 'สถานะไม่ถูกต้อง' });
     if (status === 'rejected' && !note) return res.status(400).json({ error: 'กรุณาระบุเหตุผลที่ไม่อนุมัติ' });
+    if (status === 'published') {
+      // ตรวจข้อมูลจำเป็นก่อนเผยแพร่ (สำคัญกับรายการที่นำเข้าจากชีต ซึ่งอาจยังไม่มีพิกัด ประตู ราคา หรือช่องทางติดต่อ)
+      const current = props.getProperty(db, id);
+      if (!current) return res.status(404).json({ error: 'ไม่พบที่พัก' });
+      // รายการจากชีตฐานข้อมูลของทีมงานเผยแพร่ได้แม้ข้อมูลยังไม่ครบ (หน้าเว็บแสดง "รอตรวจสอบ" ในส่วนที่ขาด)
+      const { errors } = current.import_key ? { errors: [] } : props.validatePayload(db, current);
+      if (errors.length) {
+        return res.status(400).json({ error: `ยังเผยแพร่ไม่ได้: ${errors.join(', ')} — กด "แก้ไข" เพื่อเติมข้อมูลก่อน`, errors });
+      }
+    }
     const extra = status === 'published' ? ", verified_at = ?, verified_by = ?" : '';
     const params = status === 'published' ? [new Date().toISOString(), req.user.id] : [];
     const r = db
@@ -521,6 +539,43 @@ function createApp(db) {
     res.send('﻿' + csv); // BOM ให้ Excel อ่านภาษาไทยถูก
   });
 
+  // ---------------------------------------------------------------- นำเข้าจากชีตฐานข้อมูล (ผู้ดูแล)
+  // อัปโหลดไฟล์ .xlsx ที่ดาวน์โหลดจาก Google Sheets แทนการเก็บไฟล์ชีตไว้ในโค้ด (มีเบอร์โทรเจ้าของหอ)
+  const sheetUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024, files: 1 },
+    fileFilter: (_req, file, cb) => cb(null, /\.xlsx$/i.test(file.originalname)),
+  });
+  app.post('/api/admin/import', admin, sheetUpload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'กรุณาเลือกไฟล์ .xlsx ที่ดาวน์โหลดจาก Google Sheets' });
+    const dryRun = req.query.dry_run === '1';
+    let backup = null;
+    // สำรองไฟล์ฐานข้อมูลที่เปิดอยู่จริง (ฐานข้อมูลในหน่วยความจำไม่มีไฟล์ ไม่ต้องสำรอง)
+    const dbFile = db.prepare("SELECT file FROM pragma_database_list WHERE name = 'main'").get()?.file;
+    if (!dryRun && dbFile) {
+      const stamp = new Date().toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 18);
+      backup = path.join(path.dirname(dbFile), `nudorm-backup-${stamp}.db`);
+      db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+    }
+    try {
+      const r = await importWorkbook(db, req.file.buffer, { update: true, dryRun });
+      const done = [...r.created, ...r.updated];
+      res.json({
+        dry_run: dryRun,
+        backup: backup && path.basename(backup),
+        created: r.created.length, updated: r.updated.length,
+        skipped_hidden: r.skippedHidden.length, out_of_scope: r.skippedOutOfScope.length,
+        errors: r.errors,
+        complete: done.filter((x) => !x.missing.length).map((x) => ({ key: x.key, name: x.name })),
+        partial: done.filter((x) => x.missing.length && x.missing.length < 4).map((x) => ({ key: x.key, name: x.name, missing: x.missing })),
+        bare: done.filter((x) => x.missing.length >= 4).length,
+        warnings: done.flatMap((x) => x.warnings.filter((w) => !w.startsWith('ช่องชื่อแสดงบนเว็บ')).map((w) => `${x.key} ${x.name}: ${w}`)),
+      });
+    } catch (err) {
+      res.status(400).json({ error: `อ่านไฟล์ไม่สำเร็จ: ${err.message}` });
+    }
+  });
+
   // ---------------------------------------------------------------- ไฟล์หน้าเว็บ
   app.use('/uploads', express.static(UPLOAD_DIR));
   // no-cache: เบราว์เซอร์ต้องถามเซิร์ฟเวอร์ก่อนใช้ไฟล์ในแคช จึงเห็นการแก้ CSS/JS ทันทีโดยไม่ต้องกด Ctrl+F5
@@ -532,7 +587,9 @@ function createApp(db) {
   app.use('/api', (_req, res) => res.status(404).json({ error: 'ไม่พบ API' }));
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {
-    if (err instanceof multer.MulterError) return res.status(400).json({ error: 'ไฟล์รูปใหญ่เกิน 5MB หรือจำนวนเกินกำหนด' });
+    if (err instanceof multer.MulterError) {
+      return res.status(400).json({ error: err.field === 'file' ? 'ไฟล์ชีตใหญ่เกิน 20MB' : 'ไฟล์รูปใหญ่เกิน 5MB หรือจำนวนเกินกำหนด' });
+    }
     console.error(err);
     res.status(500).json({ error: 'เกิดข้อผิดพลาดในระบบ' });
   });
@@ -543,8 +600,14 @@ function createApp(db) {
 if (require.main === module) {
   const db = open();
   if (!db.prepare('SELECT COUNT(*) AS n FROM gates').get().n) {
-    console.log('ฐานข้อมูลว่าง — กำลังใส่ข้อมูลตัวอย่าง...');
-    seed(db);
+    // เว็บจริง (NODE_ENV=production): ไม่ใส่ที่พักสมมติ และต้องตั้งรหัสผ่านผู้ดูแลเอง
+    if (PRODUCTION && !process.env.ADMIN_PASSWORD) {
+      console.error('ฐานข้อมูลว่าง: ตั้งตัวแปร ADMIN_EMAIL และ ADMIN_PASSWORD ก่อนเปิดเว็บจริงครั้งแรก');
+      process.exit(1);
+    }
+    const samples = process.env.SEED_SAMPLES ? process.env.SEED_SAMPLES === 'true' : !PRODUCTION;
+    console.log(samples ? 'ฐานข้อมูลว่าง — กำลังใส่ข้อมูลตัวอย่าง...' : 'ฐานข้อมูลว่าง — กำลังใส่ข้อมูลตั้งต้น (ไม่มีที่พักสมมติ)...');
+    seed(db, { samples });
   }
   // Express 5 เรียก callback นี้ทั้งตอนสำเร็จและตอนเกิดข้อผิดพลาด
   createApp(db).listen(PORT, (err) => {

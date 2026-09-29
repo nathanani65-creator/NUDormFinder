@@ -8,12 +8,14 @@
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
     "dev": "node --disable-warning=ExperimentalWarning --watch-path=server server/index.js",
     "seed": "node --disable-warning=ExperimentalWarning server/seed.js",
+    "import": "node --disable-warning=ExperimentalWarning server/import-sheet.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
   },
   "engines": {
     "node": ">=22.13"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "multer": "^2.0.0"
   }

@@ -207,8 +207,10 @@ function addGateMarkers(map, gates, onClick) {
   return markers;
 }
 
+// รูปจาก Google Drive (lh3.googleusercontent.com) ถูกปฏิเสธ (429) เมื่อเบราว์เซอร์ส่ง Referer
+// รูปทุกจุดจึงใส่ referrerpolicy="no-referrer" (ไม่ตั้งทั้งหน้า เพราะแผนที่ OpenStreetMap ต้องการ Referer)
 function coverHtml(p) {
-  return p.cover ? `<img src="${esc(p.cover)}" alt="" loading="lazy">` : esc(p.type_name);
+  return p.cover ? `<img referrerpolicy="no-referrer" src="${esc(p.cover)}" alt="" loading="lazy">` : esc(p.type_name);
 }
 
 function propertyCard(p, { compact = false, actions = true } = {}) {
@@ -242,7 +244,6 @@ function propertyCard(p, { compact = false, actions = true } = {}) {
         <div class="price">${priceRange(p.price_min, p.price_max)}</div>
         <div class="meta">${esc(p.soi_name || 'ไม่ระบุซอย')}${p.zone_name ? ' · ' + esc(p.zone_name) : ''}<br>${near}</div>
         <div class="chips">${amen}</div>
-        <div>${freshnessChip(p.verified_at)}</div>
       </div>
     </a>${acts}
   </div>`;
@@ -366,6 +367,7 @@ function refreshActions() {
       b.setAttribute('aria-pressed', saved);
       b.firstElementChild.textContent = saved ? '♥' : '♡';
       b.lastElementChild.textContent = saved ? 'บันทึกแล้ว' : 'บันทึกที่พัก';
+      b.title = b.lastElementChild.textContent; // ป้ายชี้เมื่อแสดงเฉพาะสัญลักษณ์
     });
     document.querySelectorAll('[data-compare]').forEach((b) => {
       const id = Number(b.dataset.compare);
@@ -377,6 +379,7 @@ function refreshActions() {
       b.title = blocked ? `เปรียบเทียบได้สูงสุด ${MAX_COMPARE} แห่งต่อครั้ง` : '';
       b.firstElementChild.textContent = on ? '✓' : '⇄';
       b.lastElementChild.textContent = on ? 'อยู่ในการเปรียบเทียบ' : blocked ? `ครบ ${MAX_COMPARE} แห่งแล้ว` : 'เพิ่มไปเปรียบเทียบ';
+      b.title = b.lastElementChild.textContent;
     });
   });
 }

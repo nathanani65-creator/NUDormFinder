@@ -17,7 +17,7 @@ function imageEditor(host, { images, categories = null, emptyText }) {
   function render() {
     host.innerHTML = list.length
       ? list.map((im, i) => `<div class="img-edit" data-i="${i}">
-          <img src="${esc(im.url)}" alt="">
+          <img referrerpolicy="no-referrer" src="${esc(im.url)}" alt="">
           <div class="img-edit-fields">
             ${categories ? `<select data-k="category" aria-label="หมวดภาพ"><option value="">— หมวดภาพ —</option>${optionTags(categories, im.category)}</select>` : ''}
             <input type="text" data-k="caption" value="${esc(im.caption || '')}" placeholder="คำบรรยายภาพ" aria-label="คำบรรยายภาพ">
@@ -98,6 +98,8 @@ async function mountPropertyForm(container, { initial = {}, submitLabel = 'ส�
         <div class="field"><label>ละติจูด</label><input type="number" step="0.000001" name="lat" value="${v('lat')}"></div>
         <div class="field"><label>ลองจิจูด</label><input type="number" step="0.000001" name="lng" value="${v('lng')}"></div>
       </div>
+      <div class="field" style="margin-top:8px"><label>ลิงก์ Google Maps ของที่พัก <span class="muted small">(ไม่บังคับ — เปิดแล้วเห็นชื่อหอ)</span></label>
+        <input type="url" name="map_url" value="${v('map_url')}" placeholder="https://maps.app.goo.gl/..."></div>
     </div></div>
 
     <div class="card form-section"><div class="card-body">
@@ -307,7 +309,7 @@ async function mountPropertyForm(container, { initial = {}, submitLabel = 'ส�
     const body = {};
     for (const k of ['name', 'type_code', 'soi_id', 'address', 'lat', 'lng', 'description', 'deposit', 'water_rate',
       'electric_rate', 'other_fees', 'lease_terms', 'contact_name', 'contact_phone', 'contact_line', 'contact_facebook',
-      'contact_website', 'data_source']) {
+      'contact_website', 'data_source', 'map_url']) {
       body[k] = fd.get(k);
     }
     body.gate_ids = fd.getAll('gate_ids').map(Number);
