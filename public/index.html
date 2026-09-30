@@ -25,7 +25,7 @@
             <label for="hsType">ประเภทที่พัก</label>
             <select id="hsType" name="type">
               <option value="">ทุกประเภท</option>
-              <option value="dorm,apartment">หอพัก/อพาร์ตเมนต์</option>
+              <option value="dorm">หอพัก/อพาร์ตเมนต์</option>
               <option value="condo">คอนโด</option>
               <option value="house">บ้านเช่า</option>
             </select>
@@ -52,10 +52,10 @@
         <h2 style="font-size:1.6rem">สำรวจที่พักรอบ ม.นเรศวร</h2>
         <p>เลือกประตูบนแผนที่เพื่อดูตำแหน่งและที่พักในแต่ละโซน</p>
       </div>
-      <div class="map-wrap"><div id="map" class="map home-map"></div><span class="map-badge">พิกัดประตูโดยประมาณ</span></div>
+      <div class="map-wrap"><div id="map" class="map home-map"></div></div>
       <div class="gate-buttons" id="gateButtons"></div>
       <div id="gatePanel" class="card gate-panel hidden"></div>
-      <p class="small muted" style="text-align:center;margin:4px 0 0">หมุดหยดน้ำสีเขียว = ประตูมหาวิทยาลัย · หมุดสีส้ม = ที่พัก (ราคาเริ่มต้น)</p>
+      <p class="small muted" style="text-align:center;margin:4px 0 0">หมุดสีเขียว = ประตูมหาวิทยาลัย · กดประตูเพื่อดูโซน ซอย และที่พักใกล้ประตูนั้น</p>
     </section>
 
     <div class="section-title"><h2>ที่พักแนะนำ</h2><a href="/search?sort=verified">ดูทั้งหมด →</a></div>
@@ -87,15 +87,14 @@
       location.href = '/search' + (params.toString() ? '?' + params : '');
     });
     const map = createMap('map', { zoom: 15, scrollWheelZoom: false });
-    let meta, gateMarkers, propLayer = L.layerGroup().addTo(map), activeGate = null;
+    // แผนที่หน้าแรกแสดงเฉพาะประตู (ไม่แสดงหมุดราคาที่พัก) ดูที่พักได้จากปุ่มในแผงประตูหรือหน้าค้นหา
+    let meta, gateMarkers, activeGate = null;
 
     async function showAll() {
       activeGate = null;
       gateMarkers.forEach((m, id) => m.setIcon(gateIcon(meta.gates.find((g) => g.id === id))));
       document.querySelectorAll('.gate-btn').forEach((b) => b.classList.toggle('active', b.dataset.id === 'all'));
       document.getElementById('gatePanel').classList.add('hidden');
-      const { results } = await api('/api/properties');
-      drawProperties(results);
       fitTo(map, L.latLngBounds(meta.gates.map((g) => [g.lat, g.lng])).pad(0.25));
     }
 
@@ -117,22 +116,6 @@
         <div class="soi-list">${sois.length ? sois.map((s) => `<a class="chip accent" href="/search?gate=${gate.id}&soi=${s.id}">${esc(s.name)}</a>`).join('') : '<span class="muted small">ยังไม่มีข้อมูลซอย</span>'}</div>
         <a class="btn primary" href="/search?gate=${gate.id}">ดูที่พักใกล้${esc(gate.short_name)} (${gate.property_count})</a>
       </div>`;
-      loadGateProperties(gate);
-    }
-
-    async function loadGateProperties(gate) {
-      const { results } = await api(`/api/properties?gate=${gate.id}`);
-      drawProperties(results);
-    }
-
-    function drawProperties(results) {
-      propLayer.clearLayers();
-      for (const p of results) {
-        if (p.lat == null || p.lng == null) continue; // ยังไม่ปักหมุด
-        L.marker([p.lat, p.lng], { icon: propIcon(p) })
-          .bindPopup(`<b>${esc(p.name)}</b><br>${priceRange(p.price_min, p.price_max)}<br><a href="/property?id=${p.id}">ดูรายละเอียด</a>`)
-          .addTo(propLayer);
-      }
     }
 
     (async () => {

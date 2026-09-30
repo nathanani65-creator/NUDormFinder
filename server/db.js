@@ -338,6 +338,18 @@ function migrate(db) {
     if (version < 4) db.exec('PRAGMA user_version = 4');
   }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_properties_import_key ON properties(import_key)');
+  // รวม "อพาร์ตเมนต์" เข้ากับ "หอพัก" เป็นประเภทเดียว "หอพัก/อพาร์ตเมนต์" (ตรวจทุกครั้ง ทำซ้ำได้)
+  const dorm = db.prepare("SELECT id, name FROM property_types WHERE code = 'dorm'").get();
+  const apt = db.prepare("SELECT id FROM property_types WHERE code = 'apartment'").get();
+  if (dorm && (apt || dorm.name === 'หอพัก')) {
+    tx(db, () => {
+      if (apt) {
+        db.prepare('UPDATE properties SET type_id = ? WHERE type_id = ?').run(dorm.id, apt.id);
+        db.prepare('DELETE FROM property_types WHERE id = ?').run(apt.id);
+      }
+      db.prepare("UPDATE property_types SET name = 'หอพัก/อพาร์ตเมนต์' WHERE id = ? AND name = 'หอพัก'").run(dorm.id);
+    });
+  }
 }
 
 function open(file = DB_PATH) {

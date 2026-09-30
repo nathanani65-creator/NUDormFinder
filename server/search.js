@@ -49,7 +49,8 @@ function parseFilters(query = {}) {
     ? query.sort
     : null;
   return {
-    types: toCodeList(query.type),
+    // ลิงก์เก่าที่ใช้ type=apartment ให้หมายถึงหอพัก/อพาร์ตเมนต์
+    types: [...new Set(toCodeList(query.type).map((c) => (c === 'apartment' ? 'dorm' : c)))],
     gates: toIdList(query.gate),
     zones: toIdList(query.zone),
     sois: toIdList(query.soi),

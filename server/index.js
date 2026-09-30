@@ -84,7 +84,7 @@ function createApp(db) {
                 (SELECT url FROM property_images WHERE property_id = p.id ORDER BY room_type_id IS NOT NULL, sort_order, id LIMIT 1) AS cover
          FROM properties p JOIN property_types t ON t.id = p.type_id
          LEFT JOIN sois s ON s.id = p.soi_id LEFT JOIN zones z ON z.id = s.zone_id
-         WHERE ${publicWhere()} ORDER BY p.verified_at DESC LIMIT 6`
+         WHERE ${publicWhere()} ORDER BY cover IS NULL, price_min IS NULL, p.verified_at DESC, p.id LIMIT 5`
       )
       .all();
     res.json(rows.length ? decorate(db, rows, { gates: [], sort: 'verified' }) : []);

@@ -141,7 +141,6 @@ function typeCode(v) {
   const s = text(v);
   if (s.includes('คอนโด')) return 'condo';
   if (s.includes('บ้าน')) return 'house';
-  if (s === 'อพาร์ตเมนต์') return 'apartment';
   return 'dorm';
 }
 
