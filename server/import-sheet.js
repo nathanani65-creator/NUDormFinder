@@ -69,13 +69,23 @@ function cellValue(v) {
 }
 
 /** แถวของชีตเป็น object โดยใช้บรรทัดแรกของหัวคอลัมน์เป็นชื่อ */
-function readSheet(wb, name) {
+/**
+ * อ่านชีตเป็นรายการ object ตามหัวคอลัมน์แถวแรก
+ * expected: { ลำดับคอลัมน์: ชื่อหัวคอลัมน์ } ถ้าชีตไม่มีหัวคอลัมน์ชื่อนี้เลย (เช่น ช่องหัวถูกพิมพ์ทับ)
+ * ใช้คอลัมน์ตามลำดับนั้นแทน และบันทึกลง notes
+ */
+function readSheet(wb, name, { expected = {}, notes = [] } = {}) {
   const ws = wb.getWorksheet(name);
   if (!ws) return [];
   const headers = [];
   ws.getRow(1).eachCell({ includeEmpty: true }, (cell, col) => {
     headers[col] = String(cellValue(cell.value)).split('\n')[0].trim();
   });
+  for (const [col, header] of Object.entries(expected)) {
+    if (headers.includes(header)) continue;
+    notes.push(`ชีต "${name}" ไม่มีหัวคอลัมน์ "${header}" (ช่องหัวคอลัมน์ลำดับที่ ${col} เป็น "${headers[col] || ''}") จึงใช้คอลัมน์นี้แทน ควรแก้หัวคอลัมน์ในชีตให้ถูกต้อง`);
+    headers[col] = header;
+  }
   const rows = [];
   ws.eachRow((row, n) => {
     if (n === 1) return;
@@ -371,7 +381,9 @@ async function importWorkbook(db, source, { update = false, dryRun = false } = {
     throw new Error('ฐานข้อมูลยังไม่มีประตูหรือประเภทที่พัก — รัน npm start หนึ่งครั้งก่อนนำเข้า');
   }
 
-  const registry = readSheet(wb, SHEETS.registry).filter((r) => text(r.property_id));
+  const notes = [];
+  // คอลัมน์ C ของทะเบียนคือชื่อที่พักต้นฉบับ (เคยถูกพิมพ์ทับหัวคอลัมน์ด้วยชื่อหอ ทำให้อ่านชื่อไม่ได้ทั้งชีต)
+  const registry = readSheet(wb, SHEETS.registry, { expected: { 3: 'ชื่อที่พักในไฟล์ต้นฉบับ' }, notes }).filter((r) => text(r.property_id));
   // สถานที่ใกล้เคียงบางแถวไม่มี property_id แต่มีชื่อที่พัก: จับคู่ด้วยชื่อ ถ้าชื่อไม่ซ้ำกับหออื่น
   const byName = groupBy(registry, 'ชื่อที่พักในไฟล์ต้นฉบับ');
   const nearbyRows = readSheet(wb, SHEETS.nearby).map((n) => {
@@ -393,7 +405,7 @@ async function importWorkbook(db, source, { update = false, dryRun = false } = {
   };
   const pick = (map, key) => map.get(key) || [];
 
-  const report = { created: [], updated: [], skippedExisting: [], skippedHidden: [], skippedOutOfScope: [], errors: [] };
+  const report = { created: [], updated: [], skippedExisting: [], skippedHidden: [], skippedOutOfScope: [], errors: [], notes };
   // วันที่ตรวจสอบมาจากชีต ถ้าไม่มี เว็บจะแสดง "ยังไม่ได้ตรวจสอบ" (ไม่ใส่วันที่นำเข้าแทน)
   const published = (item) => ({ status: 'published', review_note: null, verified_at: item.verifiedAt, verified_by: null });
   const findExisting = db.prepare('SELECT id, status FROM properties WHERE import_key = ?');
@@ -437,6 +449,7 @@ async function importWorkbook(db, source, { update = false, dryRun = false } = {
 function printReport(report, { dryRun }) {
   const line = (r) => `  ${r.key.padEnd(9)} ${r.name}${r.missing.length ? `  [ยังขาด: ${r.missing.join(', ')}]` : '  [ข้อมูลจำเป็นครบ]'}`;
   console.log(dryRun ? '\n(ตรวจอย่างเดียว ยังไม่ได้บันทึก)\n' : '');
+  report.notes.forEach((n) => console.log(`⚠ ${n}\n`));
   console.log(`นำเข้าใหม่และเผยแพร่     ${report.created.length} รายการ`);
   console.log(`อัปเดตรายการเดิม       ${report.updated.length} รายการ`);
   console.log(`มีอยู่แล้ว ข้าม          ${report.skippedExisting.length} รายการ (ใช้ --update เพื่ออัปเดต)`);

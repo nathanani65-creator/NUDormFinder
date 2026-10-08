@@ -571,7 +571,10 @@ function createApp(db) {
         complete: done.filter((x) => !x.missing.length).map((x) => ({ key: x.key, name: x.name })),
         partial: done.filter((x) => x.missing.length && x.missing.length < 4).map((x) => ({ key: x.key, name: x.name, missing: x.missing })),
         bare: done.filter((x) => x.missing.length >= 4).length,
-        warnings: done.flatMap((x) => x.warnings.filter((w) => !w.startsWith('ช่องชื่อแสดงบนเว็บ')).map((w) => `${x.key} ${x.name}: ${w}`)),
+        warnings: [
+          ...r.notes,
+          ...done.flatMap((x) => x.warnings.filter((w) => !w.startsWith('ช่องชื่อแสดงบนเว็บ')).map((w) => `${x.key} ${x.name}: ${w}`)),
+        ],
       });
     } catch (err) {
       res.status(400).json({ error: `อ่านไฟล์ไม่สำเร็จ: ${err.message}` });

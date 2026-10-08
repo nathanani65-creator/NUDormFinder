@@ -170,3 +170,15 @@ test('ลิงก์แชร์ Google Drive แปลงเป็นลิง
   assert.equal(driveImageUrl('https://drive.google.com/drive/folders/abc'), 'https://drive.google.com/drive/folders/abc');
   assert.equal(driveImageUrl('https://img.test/a.jpg'), 'https://img.test/a.jpg');
 });
+
+test('หัวคอลัมน์ชื่อที่พักถูกพิมพ์ทับ: ใช้คอลัมน์ C แทนและแจ้งเตือน', async () => {
+  const ExcelJSlib = require('exceljs');
+  const wb = new ExcelJSlib.Workbook();
+  const ws = wb.addWorksheet('ทะเบียนที่พัก');
+  ws.addRow(['property_id', 'source_id', 'หอที่พิมพ์ทับหัวคอลัมน์', 'เลขที่อยู่', 'ตำบล']);
+  ws.addRow(['PROP-901', 'SRC-901', 'หอหัวคอลัมน์หาย', '9/9', 'ท่าโพธิ์']);
+  const report = await importWorkbook(db, Buffer.from(await wb.xlsx.writeBuffer()), { dryRun: true });
+  assert.deepEqual(report.created.map((r) => r.name), ['หอหัวคอลัมน์หาย']);
+  assert.equal(report.notes.length, 1);
+  assert.match(report.notes[0], /ชื่อที่พักในไฟล์ต้นฉบับ/);
+});
