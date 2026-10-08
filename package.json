@@ -9,6 +9,7 @@
     "dev": "node --disable-warning=ExperimentalWarning --watch-path=server server/index.js",
     "seed": "node --disable-warning=ExperimentalWarning server/seed.js",
     "import": "node --disable-warning=ExperimentalWarning server/import-sheet.js",
+    "remove-samples": "node --disable-warning=ExperimentalWarning server/remove-samples.js",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
   },
   "engines": {

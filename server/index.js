@@ -602,12 +602,13 @@ function createApp(db) {
 if (require.main === module) {
   const db = open();
   if (!db.prepare('SELECT COUNT(*) AS n FROM gates').get().n) {
-    // เว็บจริง (NODE_ENV=production): ไม่ใส่ที่พักสมมติ และต้องตั้งรหัสผ่านผู้ดูแลเอง
+    // ไม่ใส่ที่พักสมมติ (ที่พักจริงนำเข้าจากชีตในหน้าผู้ดูแล) ตั้ง SEED_SAMPLES=true เมื่อต้องการข้อมูลทดสอบ
+    // เว็บจริง (NODE_ENV=production) ต้องตั้งรหัสผ่านผู้ดูแลเอง
     if (PRODUCTION && !process.env.ADMIN_PASSWORD) {
       console.error('ฐานข้อมูลว่าง: ตั้งตัวแปร ADMIN_EMAIL และ ADMIN_PASSWORD ก่อนเปิดเว็บจริงครั้งแรก');
       process.exit(1);
     }
-    const samples = process.env.SEED_SAMPLES ? process.env.SEED_SAMPLES === 'true' : !PRODUCTION;
+    const samples = process.env.SEED_SAMPLES === 'true';
     console.log(samples ? 'ฐานข้อมูลว่าง — กำลังใส่ข้อมูลตัวอย่าง...' : 'ฐานข้อมูลว่าง — กำลังใส่ข้อมูลตั้งต้น (ไม่มีที่พักสมมติ)...');
     seed(db, { samples });
   }

@@ -173,9 +173,9 @@ function seed(db, { samples = true } = {}) {
 }
 
 if (require.main === module) {
-  // npm run seed: ล้างฐานข้อมูลแล้วสร้างใหม่
+  // npm run seed: ล้างฐานข้อมูลแล้วสร้างใหม่ (ไม่มีที่พักสมมติ เว้นแต่ตั้ง SEED_SAMPLES=true)
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(DB_PATH + suffix, { force: true });
-  seed(open());
+  seed(open(), { samples: process.env.SEED_SAMPLES === 'true' });
 }
 
 module.exports = { seed };
