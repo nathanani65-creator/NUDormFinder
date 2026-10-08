@@ -36,7 +36,14 @@
                 <label class="check facet-option"><input type="radio" name="max_distance" value="2000"> <span class="facet-label">ไม่เกิน 2 กม.</span><span class="facet-count" aria-hidden="true"></span></label>
               </div>
               <p class="small muted" style="margin:6px 0 0">วัดจากประตูที่เลือก ถ้ายังไม่เลือกประตู วัดจากประตูที่ใกล้ที่พักที่สุด</p>
-            </fieldset>            <fieldset>
+            </fieldset>
+            <fieldset>
+              <legend>ใกล้สถานที่ <span class="rule">(ต้องใกล้ครบทุกที่ที่เลือก)</span></legend>
+              <div class="place-radius" id="fPlaceWithin" role="radiogroup" aria-label="ระยะจากที่พักถึงสถานที่"></div>
+              <div id="fPlace"></div>
+              <p class="small muted" style="margin:6px 0 0">นับจากข้อมูลสถานที่ใกล้เคียงที่บันทึกไว้ของแต่ละหอ</p>
+            </fieldset>
+            <fieldset>
               <legend>ราคาต่อเดือน (บาท) <span class="rule">(มีห้องในช่วงนี้)</span></legend>
               <div class="grid-2">
                 <input type="number" name="min_price" min="0" step="100" placeholder="ต่ำสุด" aria-label="ราคาต่ำสุด">
@@ -81,6 +88,7 @@
     enableCompareBar();
     const form = document.getElementById('filterForm');
     let meta, lastResults = [], lastFacets = null;
+    const DEFAULT_PLACE_WITHIN = 1000; // ตรงกับ DEFAULT_PLACE_RADIUS ฝั่งเซิร์ฟเวอร์
 
     // ตัวเลือกพร้อมช่องแสดงจำนวนผลลัพธ์ (Facet Count)
     const checkbox = (name, value, label) =>
@@ -99,7 +107,7 @@
         label.title = zero ? 'ไม่มีที่พักที่ตรงกับตัวกรองที่เลือกอยู่' : '';
         input.setAttribute('aria-label', `${label.querySelector('.facet-label').textContent} ${n} ที่พัก`);
       };
-      for (const group of ['type', 'gate', 'amenity', 'distance']) {
+      for (const group of ['type', 'gate', 'amenity', 'distance', 'place']) {
         const name = group === 'distance' ? 'max_distance' : group;
         form.querySelectorAll(`input[name=${name}]`).forEach((input) => {
           if (input.value !== '') show(input, facets[group]?.[input.value] ?? 0); // "ไม่จำกัด" ไม่มีตัวเลข
@@ -127,7 +135,7 @@
     function readForm() {
       const fd = new FormData(form);
       const params = new URLSearchParams();
-      for (const key of ['type', 'gate', 'soi', 'amenity']) {
+      for (const key of ['type', 'gate', 'soi', 'amenity', 'place']) {
         const vals = [...new Set(fd.getAll(key))]; // ซอยที่อยู่ใต้หลายประตูมีช่องติ๊กหลายช่อง
         if (vals.length) params.set(key, vals.join(','));
       }
@@ -137,13 +145,14 @@
       }
       if (fd.get('available')) params.set('available', '1');
       if (fd.get('max_distance')) params.set('max_distance', fd.get('max_distance'));
+      if (params.get('place') && fd.get('place_within') !== String(DEFAULT_PLACE_WITHIN)) params.set('place_within', fd.get('place_within'));
       const sort = document.getElementById('sort').value;
       if (sort !== 'distance') params.set('sort', sort);
       return params;
     }
 
     function writeForm(params) {
-      for (const key of ['type', 'gate', 'soi', 'amenity']) {
+      for (const key of ['type', 'gate', 'soi', 'amenity', 'place']) {
         const vals = (params.get(key) || '').split(',').filter(Boolean);
         form.querySelectorAll(`input[name=${key}]`).forEach((i) => (i.checked = vals.includes(i.value)));
       }
@@ -151,6 +160,8 @@
       form.elements.available.checked = params.get('available') === '1';
       const dist = form.querySelector(`input[name=max_distance][value="${CSS.escape(params.get('max_distance') || '')}"]`);
       (dist || form.querySelector('input[name=max_distance][value=""]')).checked = true;
+      const within = form.querySelector(`input[name=place_within][value="${CSS.escape(params.get('place_within') || '')}"]`);
+      (within || form.querySelector(`input[name=place_within][value="${DEFAULT_PLACE_WITHIN}"]`)).checked = true;
       document.getElementById('sort').value = params.get('sort') || 'distance';
     }
 
@@ -200,6 +211,10 @@
         zone: (v) => meta.zones.find((z) => z.id === Number(v))?.name,
         soi: (v) => meta.sois.find((s) => s.id === Number(v))?.name,
         amenity: (v) => meta.amenities.find((a) => a.code === v)?.name,
+        place: (v) => {
+          const name = meta.places.find((x) => x.code === v)?.name;
+          return name && `ใกล้${name} (ไม่เกิน ${distanceText(Number(params.get('place_within') || DEFAULT_PLACE_WITHIN))})`;
+        },
       };
       for (const [key, fn] of Object.entries(lookup)) {
         for (const v of (params.get(key) || '').split(',').filter(Boolean)) labels.push([key, v, fn(v) || v]);
@@ -294,7 +309,11 @@
     (async () => {
       meta = await getMeta();
       document.getElementById('fType').innerHTML = meta.types.map((t) => checkbox('type', t.code, t.name)).join('');
-      document.getElementById('fGate').innerHTML = gateTreeHtml();      document.getElementById('fAmenity').innerHTML = meta.amenities.map((a) => checkbox('amenity', a.code, a.name)).join('');
+      document.getElementById('fGate').innerHTML = gateTreeHtml();
+      document.getElementById('fPlaceWithin').innerHTML = meta.place_radii.map((m) =>
+        `<label class="chip-radio"><input type="radio" name="place_within" value="${m}"${m === DEFAULT_PLACE_WITHIN ? ' checked' : ''}> ไม่เกิน ${distanceText(m)}</label>`).join('');
+      document.getElementById('fPlace').innerHTML = meta.places.map((x) => checkbox('place', x.code, x.name)).join('');
+      document.getElementById('fAmenity').innerHTML = meta.amenities.map((a) => checkbox('amenity', a.code, a.name)).join('');
 
       const params = new URLSearchParams(location.search);
       // ลิงก์ที่มีเพียงซอย (ไม่มีประตู) ยังกรองตามซอยได้ และแสดงเป็นป้ายเงื่อนไข

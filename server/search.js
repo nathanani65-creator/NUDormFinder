@@ -14,6 +14,8 @@
  * ระยะทางที่คำนวณเป็น "ระยะทางเส้นตรง" (Haversine) ไม่ใช่ระยะเดินหรือขับรถ
  */
 
+const { PLACE_FACETS, PLACE_RADII, DEFAULT_PLACE_RADIUS, placeDistances } = require('./places');
+
 const EARTH_RADIUS_M = 6371000;
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
@@ -59,6 +61,8 @@ function parseFilters(query = {}) {
     maxPrice: toPositiveInt(query.max_price),
     availableOnly: query.available === '1' || query.available === 'true',
     maxDistance: toPositiveInt(query.max_distance) || null,
+    places: toCodeList(query.place).filter((c) => PLACE_FACETS.some((f) => f.code === c)),
+    placeWithin: PLACE_RADII.includes(toPositiveInt(query.place_within)) ? toPositiveInt(query.place_within) : DEFAULT_PLACE_RADIUS,
     q: typeof query.q === 'string' ? query.q.trim().slice(0, 100) : '',
     sort,
   };
@@ -150,6 +154,16 @@ function resolveFilters(db, filters) {
     out.nearIds = [];
     for (const [id, m] of referenceDistances(db, filters.gates)) if (m <= filters.maxDistance) out.nearIds.push(id);
   }
+  if (filters.places.length) {
+    // ต้องใกล้ครบทุกสถานที่ที่เลือก ภายในระยะที่เลือก
+    const dist = placeDistances(db, haversineMeters);
+    let ids = null;
+    for (const code of filters.places) {
+      const ok = new Set([...dist.get(code)].filter(([, v]) => v.m <= filters.placeWithin).map(([id]) => id));
+      ids = ids ? ids.filter((id) => ok.has(id)) : [...ok];
+    }
+    out.placeIds = ids;
+  }
   return out;
 }
 
@@ -234,6 +248,10 @@ function buildWhere(filters, { exclude = [] } = {}) {
     where.push(filters.nearIds.length ? `p.id IN (${placeholders(filters.nearIds)})` : '0');
     params.push(...filters.nearIds);
   }
+  if (filters.placeIds && !skip.has('place')) {
+    where.push(filters.placeIds.length ? `p.id IN (${placeholders(filters.placeIds)})` : '0');
+    params.push(...filters.placeIds);
+  }
   if (filters.q) {
     where.push('(p.name LIKE ? OR p.address LIKE ? OR s.name LIKE ?)');
     const like = `%${filters.q.replace(/[%_]/g, '')}%`;
@@ -298,6 +316,16 @@ function computeFacets(db, rawFilters) {
   const ids = db.prepare(`SELECT p.id ${BASE_FROM} WHERE ${base.sql}`).all(...base.params).map((r) => r.id);
   const ref = referenceDistances(db, filters.gates);
   facets.distance = Object.fromEntries(DISTANCE_BUCKETS.map((m) => [String(m), ids.filter((id) => ref.get(id) <= m).length]));
+
+  // ใกล้สถานที่ (AND): จำนวนที่พักที่จะเหลือถ้าติ๊กสถานที่นี้เพิ่ม ภายในระยะที่เลือก
+  const all = buildWhere(filters);
+  const current = db.prepare(`SELECT p.id ${BASE_FROM} WHERE ${all.sql}`).all(...all.params).map((r) => r.id);
+  const pd = placeDistances(db, haversineMeters);
+  facets.place = {};
+  for (const f of PLACE_FACETS) {
+    const near = pd.get(f.code);
+    facets.place[f.code] = current.filter((id) => near.get(id)?.m <= filters.placeWithin).length;
+  }
   return facets;
 }
 
@@ -354,6 +382,8 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
 
   // ระยะที่ใช้เรียง: ถ้าผู้ใช้เลือกประตู ใช้ระยะถึงประตูที่เลือกซึ่งใกล้ที่สุด ไม่เช่นนั้นใช้ประตูที่เกี่ยวข้องที่ใกล้ที่สุด
   const selectedGates = new Set(filters.gates || []);
+  // สถานที่ที่ผู้ใช้เลือกกรอง: แนบชื่อและระยะไว้แสดงบนการ์ด
+  const pd = filters.places?.length ? placeDistances(db, haversineMeters) : null;
 
   const results = rows.map((r) => {
     const related = linked.get(r.id) || new Set();
@@ -371,6 +401,11 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
       distances,
       nearest_gate: nearest,
       amenities: amenityMap.get(r.id) || [],
+      near_places: pd
+        ? filters.places
+          .map((code) => ({ code, label: PLACE_FACETS.find((f) => f.code === code).name, ...pd.get(code).get(r.id) }))
+          .filter((x) => x.m != null)
+        : [],
     };
   });
 
@@ -384,4 +419,4 @@ function decorate(db, rows, filters = { gates: [], sort: null }) {
   return results;
 }
 
-module.exports = { publicWhere, parseFilters, searchProperties, computeFacets, buildWhere, decorate, haversineMeters, PRICE_BUCKETS, DISTANCE_BUCKETS };
+module.exports = { PLACE_FACETS, PLACE_RADII, publicWhere, parseFilters, searchProperties, computeFacets, buildWhere, decorate, haversineMeters, PRICE_BUCKETS, DISTANCE_BUCKETS };

@@ -713,3 +713,10 @@ body.has-compare-bar.has-mobile-bar { padding-bottom: 160px; }
   #featured { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
   #featured > .pcard-wrap { flex: 0 0 220px; scroll-snap-align: start; }
 }
+
+/* ตัวกรองใกล้สถานที่: ปุ่มเลือกระยะ และระยะสถานที่บนการ์ดผลค้นหา */
+.place-radius { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.chip-radio { display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 3px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: .85rem; font-weight: 500; cursor: pointer; }
+.chip-radio input { margin: 0; }
+.chip-radio:has(input:checked) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.near-places { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .85rem; color: var(--accent); margin: 4px 0; }

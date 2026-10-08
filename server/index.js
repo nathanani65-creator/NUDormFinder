@@ -5,7 +5,7 @@ const express = require('express');
 const multer = require('multer');
 
 const { open, tx } = require('./db');
-const { publicWhere, parseFilters, searchProperties, computeFacets, decorate } = require('./search');
+const { publicWhere, parseFilters, searchProperties, computeFacets, decorate, PLACE_FACETS, PLACE_RADII } = require('./search');
 const props = require('./properties');
 const auth = require('./auth');
 const { seed } = require('./seed');
@@ -57,6 +57,8 @@ function createApp(db) {
       })),
       types: db.prepare('SELECT * FROM property_types ORDER BY id').all(),
       amenities: db.prepare('SELECT * FROM amenities ORDER BY id').all(),
+      places: PLACE_FACETS.map(({ code, name }) => ({ code, name })),
+      place_radii: PLACE_RADII,
       options: {
         image_categories: props.IMAGE_CATEGORIES,
         rule_topics: props.RULE_TOPICS,

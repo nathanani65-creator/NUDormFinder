@@ -243,6 +243,7 @@ function propertyCard(p, { compact = false, actions = true } = {}) {
         <div class="name">${esc(p.name)}</div>
         <div class="price">${priceRange(p.price_min, p.price_max)}</div>
         <div class="meta">${esc(p.soi_name || 'ไม่ระบุซอย')}${p.zone_name ? ' · ' + esc(p.zone_name) : ''}<br>${near}</div>
+        ${p.near_places?.length ? `<div class="near-places">${p.near_places.map((n) => `<span title="${esc(n.label)}">📍 ${esc(n.name)} ${distanceText(n.m)}</span>`).join('')}</div>` : ''}
         <div class="chips">${amen}</div>
       </div>
     </a>${acts}
