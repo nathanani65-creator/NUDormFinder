@@ -16,9 +16,9 @@ const PLACE_FACETS = [
   { code: 'lotus', name: 'โลตัส', match: /โลตัส|lotus/i },
   { code: 'cjmore', name: 'ซีเจ มอร์ (CJ MORE)', match: /cj\s*more|ซีเจ/i },
   { code: 'laundry', name: 'ร้านซักผ้า / สะดวกซัก', categories: ['ร้านซักรีด'], match: /ซัก|laundry|wash/i },
-  { code: 'market', name: 'ตลาด', categories: ['ตลาด'], match: /ตลาด|market/i },
+  // ร้านที่มีคำว่า "ตลาด" ในชื่อสาขา (เช่น 7-Eleven สาขาตลาดเมืองทอง) ไม่นับเป็นตลาด
+  { code: 'market', name: 'ตลาด', categories: ['ตลาด'], match: /ตลาด|market/i, exclude: /เซเว่น|7-?eleven|7-11/i },
   { code: 'fresh', name: 'ร้านขายผัก', match: /ผัก/ },
-  { code: 'niceplaza', name: 'ตลาดไนซ์พลาซ่า', match: /ไนซ์|nice\s*plaza/i },
   { code: 'finly', name: 'ฟินลี่แลนด์ พลาซ่า', match: /ฟินลี่|finly/i },
   { code: 'pharmacy', name: 'ร้านขายยา / คลินิก', categories: ['สถานพยาบาล'], match: /เภสัช|ร้านยา|ขายยา|คลินิก|clinic|โรงพยาบาล/i },
   { code: 'copy', name: 'ร้านถ่ายเอกสาร', categories: ['ร้านถ่ายเอกสาร'], match: /ถ่ายเอกสาร|ปริ้น|print/i },
@@ -33,7 +33,10 @@ const PLACE_RADII = [300, 500, 1000];
 const DEFAULT_PLACE_RADIUS = 1000;
 
 function placeCodesOf(row) {
-  return PLACE_FACETS.filter((f) => f.categories?.includes(row.category) || f.match?.test(row.name || '')).map((f) => f.code);
+  const name = row.name || '';
+  return PLACE_FACETS.filter(
+    (f) => !f.exclude?.test(name) && (f.categories?.includes(row.category) || f.match?.test(name))
+  ).map((f) => f.code);
 }
 
 /**

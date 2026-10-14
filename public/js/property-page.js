@@ -295,11 +295,8 @@ function sideLocationHtml(p) {
   }
   return `<div class="side-part side-location" id="location">
     <div id="map" class="map side-map"></div>
-    <div class="side-address">
-      <span>${esc(p.address)}</span>
-      <a target="_blank" rel="noopener" href="${esc(p.map_url || `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`)}">Google Maps</a>
-    </div>
-    <a class="btn small" style="width:100%" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}">เปิดเส้นทางใน Google Maps</a>
+    <div class="side-address"><span>${esc(p.address)}</span></div>
+    <a class="btn small" style="width:100%" target="_blank" rel="noopener" href="${esc(p.map_url || `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`)}">Google Maps</a>
 
     <h3 class="side-title">ระยะห่างจากประตู ม.นเรศวร</h3>
     <ul class="gate-list">${gates.map((d, i) => `
@@ -326,6 +323,7 @@ function render(p) {
       <span class="chip accent">${esc(p.type_name)}</span>
       ${p.gates.map((g) => `<a class="chip" href="/search?gate=${g.id}">${esc(g.name)}</a>`).join('')}
       ${p.zone_name ? `<a class="chip" href="/search?zone=${p.zone_id}">${esc(p.zone_name)}</a>` : ''}
+      ${sourceChip(p)}
     </div>
     <div class="pd">
       <header class="pd-head">

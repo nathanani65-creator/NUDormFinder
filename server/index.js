@@ -11,7 +11,6 @@ const auth = require('./auth');
 const { seed } = require('./seed');
 
 const fs = require('node:fs');
-const { importWorkbook, missingForPublish } = require('./import-sheet');
 
 const PORT = Number(process.env.PORT) || 3000;
 // บนโฮสต์ให้ชี้ไปที่ดิสก์ถาวร (เช่น Railway Volume) ไม่เช่นนั้นรูปที่อัปโหลดจะหายเมื่อ deploy ใหม่
@@ -68,7 +67,7 @@ function createApp(db) {
     });
   });
 
-  // ---------------------------------------------------------------- ค้นหา (สาธารณะ)
+  // ---------------------------------------------------------------- ค้นหาที่พัก
   app.get('/api/properties', (req, res) => {
     const filters = parseFilters(req.query);
     const results = searchProperties(db, filters);
@@ -541,46 +540,6 @@ function createApp(db) {
     res.send('﻿' + csv); // BOM ให้ Excel อ่านภาษาไทยถูก
   });
 
-  // ---------------------------------------------------------------- นำเข้าจากชีตฐานข้อมูล (ผู้ดูแล)
-  // อัปโหลดไฟล์ .xlsx ที่ดาวน์โหลดจาก Google Sheets แทนการเก็บไฟล์ชีตไว้ในโค้ด (มีเบอร์โทรเจ้าของหอ)
-  const sheetUpload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 20 * 1024 * 1024, files: 1 },
-    fileFilter: (_req, file, cb) => cb(null, /\.xlsx$/i.test(file.originalname)),
-  });
-  app.post('/api/admin/import', admin, sheetUpload.single('file'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'กรุณาเลือกไฟล์ .xlsx ที่ดาวน์โหลดจาก Google Sheets' });
-    const dryRun = req.query.dry_run === '1';
-    let backup = null;
-    // สำรองไฟล์ฐานข้อมูลที่เปิดอยู่จริง (ฐานข้อมูลในหน่วยความจำไม่มีไฟล์ ไม่ต้องสำรอง)
-    const dbFile = db.prepare("SELECT file FROM pragma_database_list WHERE name = 'main'").get()?.file;
-    if (!dryRun && dbFile) {
-      const stamp = new Date().toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 18);
-      backup = path.join(path.dirname(dbFile), `nudorm-backup-${stamp}.db`);
-      db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
-    }
-    try {
-      const r = await importWorkbook(db, req.file.buffer, { update: true, dryRun });
-      const done = [...r.created, ...r.updated];
-      res.json({
-        dry_run: dryRun,
-        backup: backup && path.basename(backup),
-        created: r.created.length, updated: r.updated.length,
-        skipped_hidden: r.skippedHidden.length, out_of_scope: r.skippedOutOfScope.length,
-        errors: r.errors,
-        complete: done.filter((x) => !x.missing.length).map((x) => ({ key: x.key, name: x.name })),
-        partial: done.filter((x) => x.missing.length && x.missing.length < 4).map((x) => ({ key: x.key, name: x.name, missing: x.missing })),
-        bare: done.filter((x) => x.missing.length >= 4).length,
-        warnings: [
-          ...r.notes,
-          ...done.flatMap((x) => x.warnings.filter((w) => !w.startsWith('ช่องชื่อแสดงบนเว็บ')).map((w) => `${x.key} ${x.name}: ${w}`)),
-        ],
-      });
-    } catch (err) {
-      res.status(400).json({ error: `อ่านไฟล์ไม่สำเร็จ: ${err.message}` });
-    }
-  });
-
   // ---------------------------------------------------------------- ไฟล์หน้าเว็บ
   app.use('/uploads', express.static(UPLOAD_DIR));
   // no-cache: เบราว์เซอร์ต้องถามเซิร์ฟเวอร์ก่อนใช้ไฟล์ในแคช จึงเห็นการแก้ CSS/JS ทันทีโดยไม่ต้องกด Ctrl+F5
@@ -593,7 +552,7 @@ function createApp(db) {
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {
     if (err instanceof multer.MulterError) {
-      return res.status(400).json({ error: err.field === 'file' ? 'ไฟล์ชีตใหญ่เกิน 20MB' : 'ไฟล์รูปใหญ่เกิน 5MB หรือจำนวนเกินกำหนด' });
+      return res.status(400).json({ error: 'ไฟล์รูปใหญ่เกิน 5MB หรือจำนวนเกินกำหนด' });
     }
     console.error(err);
     res.status(500).json({ error: 'เกิดข้อผิดพลาดในระบบ' });
@@ -605,7 +564,7 @@ function createApp(db) {
 if (require.main === module) {
   const db = open();
   if (!db.prepare('SELECT COUNT(*) AS n FROM gates').get().n) {
-    // ไม่ใส่ที่พักสมมติ (ที่พักจริงนำเข้าจากชีตในหน้าผู้ดูแล) ตั้ง SEED_SAMPLES=true เมื่อต้องการข้อมูลทดสอบ
+    // ไม่ใส่ที่พักสมมติ (ที่พักจริงนำเข้าด้วย npm run import) ตั้ง SEED_SAMPLES=true เมื่อต้องการข้อมูลทดสอบ
     // เว็บจริง (NODE_ENV=production) ต้องตั้งรหัสผ่านผู้ดูแลเอง
     if (PRODUCTION && !process.env.ADMIN_PASSWORD) {
       console.error('ฐานข้อมูลว่าง: ตั้งตัวแปร ADMIN_EMAIL และ ADMIN_PASSWORD ก่อนเปิดเว็บจริงครั้งแรก');

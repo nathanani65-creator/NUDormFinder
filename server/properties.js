@@ -298,6 +298,8 @@ function reviewChecklist(db, p) {
     { label: 'ที่อยู่', ok: !!p.address },
     { label: 'พิกัด', ok: p.lat != null && p.lng != null },
     { label: 'ซอย', ok: !!p.soi_id },
+    { label: 'ประตูที่เกี่ยวข้อง', ok: p.gates.length > 0 },
+    { label: 'สิ่งอำนวยความสะดวกอย่างน้อย 1 รายการ', ok: p.amenity_codes.length > 0 },
     { label: 'รูปภาพอาคาร', ok: p.images.length > 0 },
     { label: 'รูปภายในห้องครบทุกประเภท', ok: p.rooms.length > 0 && p.rooms.every((r) => r.images.length > 0) },
     { label: 'รายละเอียดภายในห้องครบทุกประเภท', ok: p.rooms.length > 0 && p.rooms.every((r) => r.features_list.length > 0) },

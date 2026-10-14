@@ -93,7 +93,7 @@ const SAMPLES = [
 /**
  * ใส่ข้อมูลตั้งต้น: บัญชีผู้ดูแล ประตู โซน ซอย ประเภทที่พัก
  * samples = true ใส่บัญชีผู้ประกอบการตัวอย่างและที่พักสมมติ 14 รายการด้วย (ใช้ตอนพัฒนา/ทดสอบ)
- * บนเว็บจริงใช้ samples = false แล้วนำเข้าที่พักจริงจากชีตในหน้าผู้ดูแล
+ * บนเว็บจริงใช้ samples = false แล้วนำเข้าที่พักจริงด้วย npm run import
  */
 function seed(db, { samples = true } = {}) {
   const adminEmail = process.env.ADMIN_EMAIL || 'admin@nudorm.local';
@@ -134,7 +134,7 @@ function seed(db, { samples = true } = {}) {
   });
 
   if (!samples) {
-    console.log(`ผู้ดูแลระบบ: ${adminEmail} (ไม่ใส่ที่พักสมมติ — นำเข้าที่พักจริงจากหน้าผู้ดูแล → นำเข้าจากชีต)`);
+    console.log(`ผู้ดูแลระบบ: ${adminEmail} (ไม่ใส่ที่พักสมมติ — นำเข้าที่พักจริงด้วย npm run import)`);
     return;
   }
 
@@ -162,7 +162,7 @@ function seed(db, { samples = true } = {}) {
       gate_ids: gates.map((k) => ids.gateId[k]),
       amenity_codes: amenities,
       rooms: rooms.map(([rName, price, size]) => ({ name: rName, price, size_sqm: size, available: 1, note: '' })),
-      images: [],
+      images: [{ url: '/img/hero.webp', category: 'ด้านหน้าอาคาร', caption: 'รูปตัวอย่าง' }], // ที่พักแสดงบนเว็บเมื่อมีรูปอย่างน้อย 1 รูป
     };
     createProperty(db, data, { status: 'published', verifiedBy: ids.adminId });
   });

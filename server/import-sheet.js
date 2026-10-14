@@ -6,6 +6,9 @@
  *   npm run import -- "ไฟล์.xlsx" --update    อัปเดตรายการที่เคยนำเข้าด้วยข้อมูลล่าสุดจากชีต
  *   npm run import -- "ไฟล์.xlsx" --dry-run   ตรวจอย่างเดียว ไม่บันทึก
  *
+ * ที่พักที่ยังไม่กรอกละติจูด/ลองจิจูดแต่มีลิงก์ Google Maps ระบบอ่านพิกัดจากลิงก์ให้ (ต้องต่ออินเทอร์เน็ต)
+ * ปิดได้ด้วย --no-map-links
+ *
  * ข้อมูลจากชีตเป็นข้อมูลที่ทีมงานรวบรวมเอง จึงเผยแพร่ทันทีโดยไม่ต้องรอผู้ดูแลอนุมัติ
  * (ต่างจากประกาศที่ผู้ประกอบการส่งเองบนเว็บ ซึ่งต้องรออนุมัติเสมอ)
  * ชีตเป็นต้นฉบับ: --update จะเขียนทับการแก้ไขบนเว็บของรายการที่มาจากชีต
@@ -144,6 +147,72 @@ function driveImageUrl(url) {
   return m ? `https://lh3.googleusercontent.com/d/${m[1] || m[2]}=w1600` : url;
 }
 
+/**
+ * พิกัดในลิงก์ Google Maps: !3d…!4d… คือหมุดของสถานที่ (แม่นที่สุด)
+ * ส่วน @lat,lng คือจุดกึ่งกลางของแผนที่หรือตำแหน่งกล้อง Street View (ใกล้เคียง)
+ */
+const PIN_COORDS = /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/;
+const OTHER_COORDS = [
+  /[?&](?:q|query|ll|destination|center)=(-?\d+\.\d+),\s*\+?(-?\d+\.\d+)/,
+  /\/maps\/(?:search|place|dir)\/(-?\d+\.\d+),\s*\+?(-?\d+\.\d+)/,
+  /@(-?\d+\.\d+),(-?\d+\.\d+)/,
+];
+
+function coordsInMapUrl(url) {
+  let s = url;
+  try {
+    s = decodeURIComponent(url); // ลิงก์ที่ผ่านหน้ายินยอมของ Google ฝังลิงก์จริงไว้แบบเข้ารหัส
+  } catch { /* ใช้ข้อความเดิม */ }
+  const pin = s.match(PIN_COORDS);
+  if (pin) return { lat: Number(pin[1]), lng: Number(pin[2]), exact: true };
+  for (const re of OTHER_COORDS) {
+    const m = s.match(re);
+    if (m) return { lat: Number(m[1]), lng: Number(m[2]), exact: false };
+  }
+  return null;
+}
+
+/** ตามลิงก์สั้น (maps.app.goo.gl) ไปจนเจอลิงก์ที่มีพิกัด คืน null ถ้าหาไม่เจอ */
+async function resolveMapCoords(url, fetchImpl = fetch) {
+  let current = url;
+  for (let hop = 0; hop < 6; hop++) {
+    const found = coordsInMapUrl(current);
+    if (found) return found;
+    const res = await fetchImpl(current, { redirect: 'manual', signal: AbortSignal.timeout(10000) });
+    const next = res.headers.get('location');
+    if (!next) return null;
+    current = new URL(next, current).href;
+  }
+  return null;
+}
+
+/** เติมพิกัดจากลิงก์ Google Maps ให้แถวที่ยังไม่มีละติจูด/ลองจิจูด (แก้ค่าในแถวโดยตรง) */
+async function fillCoordsFromMapLinks(registry, fetchImpl) {
+  const todo = registry.filter((r) => {
+    const link = text(r['ลิงก์ Google Maps']);
+    return (num(r['ละติจูด']) == null || num(r['ลองจิจูด']) == null) && MAP_URL.test(link);
+  });
+  const worker = async () => {
+    for (let r = todo.shift(); r; r = todo.shift()) {
+      try {
+        const c = await resolveMapCoords(text(r['ลิงก์ Google Maps']), fetchImpl);
+        if (!c) {
+          r.coordNote = 'ลิงก์ Google Maps ไม่มีพิกัด (ควรเป็นลิงก์ที่ปักหมุดตัวที่พัก) ยังไม่มีพิกัด';
+          continue;
+        }
+        r['ละติจูด'] = c.lat;
+        r['ลองจิจูด'] = c.lng;
+        r.coordNote = c.exact
+          ? 'ใช้พิกัดจากหมุดในลิงก์ Google Maps'
+          : 'ใช้พิกัดจากลิงก์ Google Maps (เป็นจุดกลางแผนที่ ไม่ใช่หมุดของที่พัก ควรตรวจตำแหน่ง)';
+      } catch {
+        r.coordNote = 'อ่านพิกัดจากลิงก์ Google Maps ไม่สำเร็จ (ต่ออินเทอร์เน็ตหรือไม่) ยังไม่มีพิกัด';
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+}
+
 // ชื่อประตูไม่สนช่องว่าง: "ประตู6" = "ประตู 6"
 const gateKey = (s) => text(s).replace(/\s+/g, '');
 
@@ -176,6 +245,7 @@ function buildProperty(db, reg, related, lookups) {
   if (isUrl(displayName) || /https?:\/\//.test(displayName)) warnings.push('ช่องชื่อแสดงบนเว็บเป็นลิงก์ ใช้ชื่อต้นฉบับแทน');
   const name = displayName && !/https?:\/\//.test(displayName) ? displayName : originalName;
 
+  if (reg.coordNote) warnings.push(reg.coordNote);
   const lat = num(reg['ละติจูด']);
   const lng = num(reg['ลองจิจูด']);
   let coords = lat != null && lng != null ? { lat, lng } : { lat: null, lng: null };
@@ -366,7 +436,7 @@ function missingForPublish(d) {
 
 // ---------------------------------------------------------------- นำเข้า
 /** source = ที่อยู่ไฟล์ .xlsx หรือ Buffer ของไฟล์ (จากหน้าอัปโหลดของผู้ดูแล) */
-async function importWorkbook(db, source, { update = false, dryRun = false } = {}) {
+async function importWorkbook(db, source, { update = false, dryRun = false, mapLinks = true, fetchImpl = fetch } = {}) {
   const wb = new ExcelJS.Workbook();
   if (Buffer.isBuffer(source)) await wb.xlsx.load(source);
   else await wb.xlsx.readFile(source);
@@ -384,6 +454,7 @@ async function importWorkbook(db, source, { update = false, dryRun = false } = {
   const notes = [];
   // คอลัมน์ C ของทะเบียนคือชื่อที่พักต้นฉบับ (เคยถูกพิมพ์ทับหัวคอลัมน์ด้วยชื่อหอ ทำให้อ่านชื่อไม่ได้ทั้งชีต)
   const registry = readSheet(wb, SHEETS.registry, { expected: { 3: 'ชื่อที่พักในไฟล์ต้นฉบับ' }, notes }).filter((r) => text(r.property_id));
+  if (mapLinks) await fillCoordsFromMapLinks(registry, fetchImpl);
   // สถานที่ใกล้เคียงบางแถวไม่มี property_id แต่มีชื่อที่พัก: จับคู่ด้วยชื่อ ถ้าชื่อไม่ซ้ำกับหออื่น
   const byName = groupBy(registry, 'ชื่อที่พักในไฟล์ต้นฉบับ');
   const nearbyRows = readSheet(wb, SHEETS.nearby).map((n) => {
@@ -481,7 +552,7 @@ async function main() {
   const args = process.argv.slice(2);
   const file = args.find((a) => !a.startsWith('--'));
   if (!file) {
-    console.log('วิธีใช้: npm run import -- "ไฟล์.xlsx" [--update] [--dry-run]');
+    console.log('วิธีใช้: npm run import -- "ไฟล์.xlsx" [--update] [--dry-run] [--no-map-links]');
     process.exit(1);
   }
   const dryRun = args.includes('--dry-run');
@@ -493,7 +564,11 @@ async function main() {
     db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
     console.log(`สำรองฐานข้อมูลไว้ที่ ${backup}`);
   }
-  const report = await importWorkbook(db, path.resolve(file), { update: args.includes('--update'), dryRun });
+  const report = await importWorkbook(db, path.resolve(file), {
+    update: args.includes('--update'),
+    dryRun,
+    mapLinks: !args.includes('--no-map-links'),
+  });
   printReport(report, { dryRun });
   if (!dryRun && (report.created.length || report.updated.length)) {
     console.log('\nเผยแพร่บนเว็บแล้ว เติมข้อมูลที่ขาดในชีตแล้วรันซ้ำด้วย --update');
@@ -508,4 +583,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { importWorkbook, readSheet, cellValue, driveImageUrl, missingForPublish };
+module.exports = { importWorkbook, readSheet, cellValue, driveImageUrl, missingForPublish, coordsInMapUrl, resolveMapCoords };

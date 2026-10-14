@@ -68,6 +68,14 @@ const STATUS_LABEL = {
   rejected: ['ไม่อนุมัติ', 'bad'],
   hidden: ['ซ่อนอยู่', ''],
 };
+// ที่พักในทะเบียนหอพักของ อบต.ท่าโพธิ์ = แหล่งข้อมูลขึ้นต้นด้วย "ไฟล์ อบต." (คอลัมน์แหล่งข้อมูลในชีต)
+const isRegistered = (p) => /^ไฟล์ อบต\./.test(p.data_source || '');
+function sourceChip(p) {
+  return isRegistered(p)
+    ? '<span class="chip ok" title="มีรายชื่อในทะเบียนหอพักขององค์การบริหารส่วนตำบลท่าโพธิ์">✓ จดทะเบียนกับ อบต.</span>'
+    : '<span class="chip warn" title="ข้อมูลจากประกาศหรือผู้ประกอบการ ยังไม่พบในทะเบียนหอพักของ อบต.">ข้อมูลจากผู้ประกอบการ</span>';
+}
+
 function statusChip(s) {
   const [label, cls] = STATUS_LABEL[s] || [s, ''];
   return `<span class="chip ${cls}">${label}</span>`;
@@ -239,10 +247,10 @@ function propertyCard(p, { compact = false, actions = true } = {}) {
     <a class="rcard" href="/property?id=${p.id}" data-id="${p.id}">
       <div class="cover">${coverHtml(p)}</div>
       <div class="body">
-        <div class="chips"><span class="chip accent">${esc(p.type_name)}</span>${(p.gates || []).map((g) => `<span class="chip">${esc(g.name)}</span>`).join('')}</div>
+        <div class="chips"><span class="chip accent">${esc(p.type_name)}</span>${(p.gates || []).map((g) => `<span class="chip">${esc(g.name)}</span>`).join('')}${sourceChip(p)}</div>
         <div class="name">${esc(p.name)}</div>
         <div class="price">${priceRange(p.price_min, p.price_max)}</div>
-        <div class="meta">${esc(p.soi_name || 'ไม่ระบุซอย')}${p.zone_name ? ' · ' + esc(p.zone_name) : ''}<br>${near}</div>
+        <div class="meta">${p.soi_name ? `${esc(p.soi_name)}${p.zone_name ? ' · ' + esc(p.zone_name) : ''}<br>` : ''}${near}</div>
         ${p.near_places?.length ? `<div class="near-places">${p.near_places.map((n) => `<span title="${esc(n.label)}">📍 ${esc(n.name)} ${distanceText(n.m)}</span>`).join('')}</div>` : ''}
         <div class="chips">${amen}</div>
       </div>

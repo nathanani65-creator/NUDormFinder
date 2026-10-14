@@ -45,7 +45,7 @@ async function workbook(file, { registry, rooms = [], images = [], amenities = [
 
 const byKey = (key) => db.prepare('SELECT * FROM properties WHERE import_key = ?').get(key);
 
-test('นำเข้าจากชีต: เผยแพร่ทันทีโดยไม่ต้องรออนุมัติ แม้ยังไม่มีพิกัด และค้นหาได้', async () => {
+test('นำเข้าจากชีต: เผยแพร่ทันทีโดยไม่ต้องรออนุมัติ แต่แสดงบนเว็บเมื่อข้อมูลครบ', async () => {
   const before = searchProperties(db, parseFilters({})).length;
   const file = await workbook(path.join(dir, 'a.xlsx'), {
     registry: [
@@ -100,12 +100,16 @@ test('นำเข้าจากชีต: เผยแพร่ทันที
   assert.deepEqual(p.nearby.map((n) => [n.name, n.display_distance_m]), [['ร้านทดสอบ', 50]], 'จับคู่ด้วยชื่อหอ และข้ามรายการที่ไม่มีระยะ');
   assert.equal(props.getProperty(db, byKey('PROP-003').id).type_code, 'condo');
 
+  // ผู้ใช้ทั่วไปเห็นเฉพาะหอที่ข้อมูลครบ: PROP-001 ยังไม่มีพิกัด, PROP-003 ยังไม่มีราคา รูป และช่องทางติดต่อ
   const all = searchProperties(db, parseFilters({}));
-  assert.equal(all.length, before + 1, 'แสดงเฉพาะหอที่มีราคาหรือรูปแล้ว');
-  assert.ok(!all.some((r) => r.id === byKey('PROP-003').id), 'หอที่ยังไม่มีราคาและรูปไม่แสดงต่อผู้ใช้ทั่วไป');
-  assert.equal(all.at(-1).id, row.id, 'รายการที่ไม่มีพิกัดเรียงไว้ท้ายสุดเมื่อเรียงตามระยะ');
+  assert.equal(all.length, before, 'หอที่ข้อมูลยังไม่ครบไม่แสดงต่อผู้ใช้ทั่วไป');
+  assert.ok(!all.some((r) => r.id === row.id || r.id === byKey('PROP-003').id));
+
+  // เติมพิกัดแล้วข้อมูลครบ → แสดงและกรองตามประตูได้
+  db.prepare('UPDATE properties SET lat = 16.7588, lng = 100.1851 WHERE id = ?').run(row.id);
+  assert.ok(searchProperties(db, parseFilters({})).some((r) => r.id === row.id), 'ข้อมูลครบแล้วแสดงบนเว็บ');
   assert.ok(searchProperties(db, parseFilters({ gate: String(p.gates[0].id) })).some((r) => r.id === row.id), 'กรองตามประตูได้');
-  assert.ok(!searchProperties(db, parseFilters({ max_distance: '5000' })).some((r) => r.id === row.id), 'ไม่มีพิกัดจึงไม่ผ่านตัวกรองระยะทาง');
+  db.prepare('UPDATE properties SET lat = NULL, lng = NULL WHERE id = ?').run(row.id);
 });
 
 test('นำเข้าซ้ำ: ข้ามรายการเดิม, --update อัปเดตจากชีต ยกเว้นที่ผู้ดูแลซ่อนไว้, --dry-run ไม่บันทึก', async () => {
@@ -181,4 +185,15 @@ test('หัวคอลัมน์ชื่อที่พักถูกพ�
   assert.deepEqual(report.created.map((r) => r.name), ['หอหัวคอลัมน์หาย']);
   assert.equal(report.notes.length, 1);
   assert.match(report.notes[0], /ชื่อที่พักในไฟล์ต้นฉบับ/);
+});
+
+test('พิกัดจากลิงก์ Google Maps: ตามลิงก์สั้นไปจนเจอหมุดของสถานที่', async () => {
+  const { resolveMapCoords } = require('../server/import-sheet');
+  const fakeFetch = async (url) => ({
+    headers: new Map([['location', url.includes('goo.gl')
+      ? 'https://www.google.com/maps/place/x/@16.7500,100.1900,800m/data=!4m6!3m5!8m2!3d16.7539!4d100.1948'
+      : null]]),
+  });
+  assert.deepEqual(await resolveMapCoords('https://maps.app.goo.gl/abc', fakeFetch), { lat: 16.7539, lng: 100.1948, exact: true });
+  assert.equal(await resolveMapCoords('https://www.google.com/maps/search/หอพัก', fakeFetch), null);
 });

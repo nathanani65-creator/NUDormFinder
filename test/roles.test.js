@@ -45,6 +45,8 @@ const gate4 = () => db.prepare("SELECT id FROM gates WHERE short_name = 'ปร�
 const listing = (name) => ({
   name, type_code: 'dorm', address: 'ที่อยู่ทดสอบ', lat: 16.7601, lng: 100.184, gate_ids: [gate4()],
   contact_phone: '0800000000', rooms: [{ name: 'ห้องแอร์', price: 2800 }, { name: 'ห้องใหญ่', price: 3500, features: 'ตู้เย็น' }],
+  // รูปและสิ่งอำนวยความสะดวก: ที่พักแสดงบนเว็บเมื่อข้อมูลครบ
+  images: [{ url: 'https://img.test/front.jpg', category: 'ด้านหน้าอาคาร' }], amenity_codes: ['wifi'],
 });
 const publishedIds = () => db.prepare("SELECT id FROM properties WHERE status = 'published' ORDER BY id").all().map((r) => r.id);
 

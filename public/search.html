@@ -266,7 +266,8 @@
       const list = document.getElementById('results');
       list.innerHTML = results.length
         ? results.map((p) => propertyCard(p, { compact: true })).join('')
-        : `<div class="card empty">ไม่พบที่พักที่ตรงทุกเงื่อนไข<br><span class="small">ลองเพิ่มงบประมาณ ลดสิ่งอำนวยความสะดวก หรือเลือกประตูเพิ่ม</span></div>`;
+        : `<div class="card empty">ไม่พบที่พักที่ตรงทุกเงื่อนไข<br><span class="small">ลองเพิ่มงบประมาณ 
+          ลดสิ่งอำนวยความสะดวก หรือเลือกประตูเพิ่ม</span></div>`;
       refreshActions();
     }
 

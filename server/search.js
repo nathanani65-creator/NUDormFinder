@@ -73,14 +73,23 @@ function placeholders(list) {
 }
 
 /**
- * เงื่อนไขที่พักที่ผู้ใช้ทั่วไปเห็น: เผยแพร่แล้ว และมีราคาห้องหรือรูปอย่างน้อยหนึ่งอย่าง
- * (ที่พักจากชีตที่ยังมีแค่ชื่อกับที่อยู่ ไม่แสดงจนกว่าจะเติมข้อมูล)
+ * เงื่อนไขที่พักที่ผู้ใช้ทั่วไปเห็น: เผยแพร่แล้ว และข้อมูลครบ 6 อย่าง ได้แก่ พิกัด ประตู ราคาห้อง รูป
+ * ช่องทางติดต่อ และสิ่งอำนวยความสะดวก (ที่พักที่ข้อมูลยังไม่ครบไม่แสดงจนกว่าจะเติมข้อมูล)
  * ตั้ง SHOW_INCOMPLETE_LISTINGS=true เพื่อแสดงทุกรายการที่เผยแพร่แล้ว
  */
 function publicWhere(a = 'p') {
   if (process.env.SHOW_INCOMPLETE_LISTINGS === 'true') return `${a}.status = 'published'`;
-  return `${a}.status = 'published' AND (EXISTS (SELECT 1 FROM room_types vr WHERE vr.property_id = ${a}.id)
-    OR EXISTS (SELECT 1 FROM property_images vi WHERE vi.property_id = ${a}.id))`;
+  return `${a}.status = 'published' AND ${completeWhere(a)}`;
+}
+
+/** ข้อมูลครบสำหรับแสดงบนเว็บ (ใช้ร่วมกับรายการตรวจของผู้ดูแลและรายงานการนำเข้า) */
+function completeWhere(a = 'p') {
+  return `${a}.lat IS NOT NULL AND ${a}.lng IS NOT NULL
+    AND EXISTS (SELECT 1 FROM property_gates vg WHERE vg.property_id = ${a}.id)
+    AND EXISTS (SELECT 1 FROM room_types vr WHERE vr.property_id = ${a}.id)
+    AND EXISTS (SELECT 1 FROM property_images vi WHERE vi.property_id = ${a}.id)
+    AND EXISTS (SELECT 1 FROM property_amenities va WHERE va.property_id = ${a}.id)
+    AND TRIM(COALESCE(${a}.contact_phone, '') || COALESCE(${a}.contact_line, '') || COALESCE(${a}.contact_facebook, '') || COALESCE(${a}.contact_website, '')) <> ''`;
 }
 
 // ตารางหลักของการค้นหา (ใช้ร่วมกันระหว่างรายการผลลัพธ์และการนับจำนวน)
